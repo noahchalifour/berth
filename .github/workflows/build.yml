@@ -1,0 +1,110 @@
+name: build
+
+on:
+  pull_request:
+  push:
+    branches: ["main"]
+    tags: ["v*"]
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv sync --frozen
+      - run: uvx ruff check src tests
+      - run: uvx ruff format --check src tests
+      # Generated stubs must match the committed proto.
+      - run: ./scripts/gen-grpc.sh && git diff --exit-code src/emulator_hub/_grpc
+      - run: uv run pytest -q
+
+  # Boots each form factor for real under KVM and asserts the hub's own
+  # GrpcBootProbe sees it booted. This is the only test that proves the
+  # emulator image works; it runs on every PR because the image is what
+  # breaks when the SDK moves.
+  emulator-smoke:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {image: "system-images;android-35;google_apis;x86_64", device: pixel_8}
+          - {image: "system-images;android-36;android-tv;x86_64", device: tv_1080p}
+    steps:
+      - uses: actions/checkout@v4
+      # ubuntu-latest has ~14 GB free; the emulator image is ~17.5 GB.
+      - name: Free disk
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          sudo docker image prune -af
+          df -h /
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules && sudo udevadm trigger --name-match=kvm
+      - run: docker build -t emulator:ci emulator/
+      - name: Boot and probe
+        run: |
+          docker run -d --name emu --device /dev/kvm -p 8554:8554 -p 5557:5557 \
+            -e SYSTEM_IMAGE="${{ matrix.image }}" -e DEVICE=${{ matrix.device }} -e RAM_MB=2048 -e CORES=2 \
+            emulator:ci
+          uv sync --frozen
+          uv run python - <<'PY'
+          import asyncio, time
+          from emulator_hub.emulator_grpc import GrpcBootProbe, GrpcScreen
+          async def main():
+              deadline = time.time() + 480
+              while time.time() < deadline:
+                  if await GrpcBootProbe().booted("127.0.0.1"):
+                      shot = await GrpcScreen("127.0.0.1").snapshot()
+                      assert shot[:2] == b"\xff\xd8", "snapshot is not a JPEG"
+                      print("booted; snapshot", len(shot), "bytes"); return
+                  await asyncio.sleep(5)
+              raise SystemExit("emulator did not boot in 8 minutes")
+          asyncio.run(main())
+          PY
+      - name: ADB is reachable on the published port
+        run: |
+          sudo apt-get install -y -qq adb
+          adb connect 127.0.0.1:5557
+          test "$(adb -s 127.0.0.1:5557 shell getprop sys.boot_completed | tr -d '\r')" = 1
+      - if: failure()
+        run: docker logs emu | tail -100
+
+  image:
+    needs: [test, emulator-smoke]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      matrix:
+        include:
+          - {image: emulator-hub, context: ., file: Dockerfile}
+          - {image: emulator-hub-emulator, context: emulator, file: emulator/Dockerfile}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Free disk
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          sudo docker image prune -af
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/metadata-action@v5
+        id: meta
+        with:
+          images: ghcr.io/noahchalifour/${{ matrix.image }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.file }}
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
