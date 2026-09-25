@@ -69,6 +69,12 @@ jobs:
       - name: ADB is reachable on the published port
         run: |
           sudo apt-get install -y -qq adb
+          # Use the same adb key the container pre-authorized into the guest
+          # (see emulator/entrypoint.sh) so this external client doesn't hit
+          # a fresh, unauthorized identity on android-tv images.
+          mkdir -p ~/.android
+          docker cp emu:/home/emu/.android/adbkey ~/.android/adbkey
+          export ADB_VENDOR_KEYS=~/.android/adbkey
           adb connect 127.0.0.1:5557
           test "$(adb -s 127.0.0.1:5557 shell getprop sys.boot_completed | tr -d '\r')" = 1
       - if: failure()
