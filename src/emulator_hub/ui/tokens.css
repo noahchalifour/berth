@@ -1,0 +1,64 @@
+/* Design tokens from the Linear DESIGN.md
+   (https://github.com/voltagent/awesome-design-md/blob/main/design-md/linear.app/DESIGN.md).
+   Values are copied verbatim; the token names match that file's {colors.*},
+   {typography.*}, {rounded.*} and {spacing.*} keys. Do not add colours here:
+   the system has ONE chromatic accent (--primary) and ONE semantic colour
+   (--success). Linear's custom faces are proprietary; Inter and JetBrains
+   Mono are the substitutes that file names. */
+
+@font-face {
+  font-family: "Inter";
+  src: url("fonts/InterVariable.woff2") format("woff2");
+  font-weight: 100 900;
+  font-display: swap;
+}
+@font-face {
+  font-family: "JetBrains Mono";
+  src: url("fonts/JetBrainsMono-Regular.woff2") format("woff2");
+  font-weight: 400;
+  font-display: swap;
+}
+
+:root {
+  /* colors */
+  --primary: #5e6ad2;
+  --on-primary: #ffffff;
+  --primary-hover: #828fff;
+  --primary-focus: #5e69d1;
+  --ink: #f7f8f8;
+  --ink-muted: #d0d6e0;
+  --ink-subtle: #8a8f98;
+  --ink-tertiary: #62666d;
+  --canvas: #010102;
+  --surface-1: #0f1011;
+  --surface-2: #141516;
+  --surface-3: #18191a;
+  --surface-4: #191a1b;
+  --hairline: #23252a;
+  --hairline-strong: #34343a;
+  --hairline-tertiary: #3e3e44;
+  --success: #27a644;
+  --overlay: #000000;
+
+  /* type */
+  --font-display: "Inter", "SF Pro Display", -apple-system, system-ui, "Segoe UI", Roboto, sans-serif;
+  --font-text: "Inter", "SF Pro Text", -apple-system, system-ui, "Segoe UI", Roboto, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+
+  /* rounded */
+  --rounded-xs: 4px;
+  --rounded-sm: 6px;
+  --rounded-md: 8px;
+  --rounded-lg: 12px;
+  --rounded-xl: 16px;
+  --rounded-pill: 9999px;
+
+  /* spacing */
+  --space-xxs: 4px;
+  --space-xs: 8px;
+  --space-sm: 12px;
+  --space-md: 16px;
+  --space-lg: 24px;
+  --space-xl: 32px;
+  --space-xxl: 48px;
+}

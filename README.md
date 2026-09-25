@@ -33,3 +33,10 @@ Two images are published to GHCR, tagged only on `v*` release tags (no
 Deployment manifests live outside this repo, in
 [`kubernetes/apps/emulator-hub/`](https://github.com/noahchalifour/home-lab-infrastructure/tree/main/kubernetes/apps/emulator-hub)
 in `noahchalifour/home-lab-infrastructure`.
+
+## Fonts
+
+The web UI vendors [Inter](https://github.com/rsms/inter) and
+[JetBrains Mono](https://github.com/JetBrains/JetBrainsMono) under
+`src/emulator_hub/ui/fonts/`, both licensed under the SIL Open Font License
+1.1.

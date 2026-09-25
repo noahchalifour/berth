@@ -1,1 +1,96 @@
-<!doctype html><title>Emulator Hub</title>
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Emulator Hub</title>
+  <link rel="stylesheet" href="tokens.css">
+  <link rel="stylesheet" href="app.css">
+  <script type="module" src="app.js"></script>
+</head>
+<body>
+  <header class="top-nav">
+    <div class="brand"><span class="brand-mark" aria-hidden="true"></span>Emulator Hub</div>
+    <nav class="tabs" role="tablist">
+      <button class="tab" role="tab" data-view="devices" aria-selected="true">Devices</button>
+      <button class="tab" role="tab" data-view="profiles" aria-selected="false">Profiles</button>
+      <button class="tab" role="tab" data-view="history" aria-selected="false">History</button>
+    </nav>
+    <div class="nav-spacer"></div>
+    <span class="whoami" id="whoami"></span>
+  </header>
+
+  <main>
+    <div class="error" id="error" role="alert" hidden></div>
+
+    <section data-panel="devices">
+      <div class="section-head">
+        <div>
+          <p class="eyebrow">Slots</p>
+          <h1 class="headline">Devices</h1>
+          <p class="lede" id="summary"></p>
+        </div>
+        <form class="card-row" id="boot-form">
+          <select id="boot-profile" aria-label="Profile to boot"></select>
+          <button class="btn btn-primary" type="submit">Boot device</button>
+        </form>
+      </div>
+      <div class="slots" id="slots"></div>
+    </section>
+
+    <section data-panel="profiles" hidden>
+      <div class="section-head">
+        <div>
+          <p class="eyebrow">What agents can request</p>
+          <h1 class="headline">Profiles</h1>
+        </div>
+      </div>
+      <table class="rows">
+        <thead><tr><th>Name</th><th>Form factor</th><th>System image</th><th>Device</th><th>RAM</th><th>Cores</th><th></th></tr></thead>
+        <tbody id="profile-rows"></tbody>
+      </table>
+      <h2 class="eyebrow" style="margin-top: var(--space-xl)">Add or update a profile</h2>
+      <form class="form" id="profile-form">
+        <label>Name <input name="name" required pattern="[a-zA-Z0-9-]{1,40}"></label>
+        <label>Form factor <select name="form_factor" required></select></label>
+        <label>System image <select name="system_image" required></select></label>
+        <label>Device <select name="device" required></select></label>
+        <label>RAM (MB) <input name="ram_mb" type="number" min="1024" max="4096" step="256" value="2048" required></label>
+        <label>Cores <input name="cores" type="number" min="1" max="4" value="2" required></label>
+        <button class="btn btn-primary" type="submit">Save profile</button>
+      </form>
+    </section>
+
+    <section data-panel="history" hidden>
+      <div class="section-head">
+        <div>
+          <p class="eyebrow">Last 100 leases</p>
+          <h1 class="headline">History</h1>
+        </div>
+      </div>
+      <table class="rows">
+        <thead><tr><th>Started</th><th>Profile</th><th>Slot</th><th>Holder</th><th>Duration</th><th>Ended</th></tr></thead>
+        <tbody id="history-rows"></tbody>
+      </table>
+    </section>
+  </main>
+
+  <dialog id="live-dialog">
+    <div class="live">
+      <div class="live-head">
+        <div><p class="eyebrow" id="live-title"></p><span class="meta" id="live-sub"></span></div>
+        <button class="btn btn-tertiary" id="live-close" type="button">Close</button>
+      </div>
+      <canvas id="live-canvas" width="480" height="1071"></canvas>
+      <div class="live-keys">
+        <button class="btn btn-secondary" data-key="GoBack" title="Back" type="button">◁</button>
+        <button class="btn btn-secondary" data-key="GoHome" title="Home" type="button">○</button>
+        <button class="btn btn-secondary" data-key="AppSwitch" title="Recents" type="button">□</button>
+        <button class="btn btn-secondary" data-key="AudioVolumeUp" title="Volume up" type="button">+</button>
+        <button class="btn btn-secondary" data-key="AudioVolumeDown" title="Volume down" type="button">−</button>
+        <button class="btn btn-secondary" data-key="Power" title="Power" type="button">⏻</button>
+      </div>
+    </div>
+  </dialog>
+</body>
+</html>
