@@ -34,6 +34,7 @@ jobs:
           - {image: "system-images;android-36;android-tv;x86_64", device: tv_1080p}
     steps:
       - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
       # ubuntu-latest has ~14 GB free; the emulator image is ~17.5 GB.
       - name: Free disk
         run: |
