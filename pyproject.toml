@@ -1,0 +1,44 @@
+[project]
+name = "emulator-hub"
+version = "0.1.0"
+description = "Lease-based Android emulator pool with an MCP server and a live-view web UI"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.141.1",
+    "grpcio>=1.84.0",
+    "httpx>=0.28.1",
+    "lightkube>=1.0.1",
+    "mcp>=2.2.0",
+    "pillow>=12.3.0",
+    "prometheus-client>=0.26.0",
+    "protobuf>=6.31",
+    "pydantic-settings>=2.15.0",
+    "uvicorn[standard]>=0.53.0",
+]
+
+[project.scripts]
+emulator-hub = "emulator_hub.app:main"
+
+[dependency-groups]
+dev = [
+    "grpcio-tools>=1.84.0",
+    "httpx>=0.28.1",
+    "pytest>=9.1.1",
+    "pytest-asyncio>=1.4.0",
+]
+
+[build-system]
+requires = ["uv_build>=0.10.0,<0.11"]
+build-backend = "uv_build"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 120
+extend-exclude = ["src/emulator_hub/_grpc"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
