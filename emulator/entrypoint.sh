@@ -14,31 +14,53 @@ fi
 # key into the guest via the ro.boot.qemu.adb.pubkey kernel property, which a
 # guest oneshot service (ranchu-adb-setup) writes to /data/misc/adb/adb_keys
 # on first boot -- see device/generic/goldfish/init.ranchu.adb.setup.sh in
-# AOSP. Both the emulator process and any "adb" client it shells out to
-# internally (visible in the boot log: "adb -s emulator-5554 shell settings
-# put ...") resolve their own signing identity the same way upstream adb
-# does (adb_get_android_dir_path(), see packages/modules/adb/adb_utils.cpp):
-# $HOME/.android/adbkey, generated on demand if missing. With -wipe-data and
-# a from-scratch AVD, nothing pins that file down, so it's regenerated
-# per-boot -- and if two of the several adb calls this entrypoint/the
-# emulator make race against that regeneration, they can end up presenting
-# a key that was never the one seeded into the guest via
-# ro.boot.qemu.adb.pubkey. That race is apparently harmless for the
-# google_apis/pixel image (real GitHub Actions/KVM run: clean, immediate
-# auth) but is fatal for android-tv, where every adb client without the
-# exact matching key -- including the emulator's own internal calls -- is
-# rejected: "device unauthorized. This adb server's $ADB_VENDOR_KEYS is not
-# set". Generating the key once, up front, before the emulator (and thus
-# ranchu-adb-setup) ever runs removes that race, and ADB_VENDOR_KEYS is set
-# too so any adb invocation that still looks elsewhere first also finds and
-# trusts it. The CI workflow copies this same key out for the external
-# `adb connect` step so it presents the identical, pre-authorized identity.
-# This is purely additive -- one stable trusted key instead of a possibly
-# regenerated one -- so it should not affect the already-working
+# AOSP. That property is composed from a key resolved by the emulator's OWN
+# embedded copy of the adb-key logic (getPrivateAdbKeyPath() in
+# android/emu/adb/interface/.../adbkey.cpp), which looks in
+# ConfigDirs::getUserDirectory() -- driven by $ANDROID_EMULATOR_HOME, NOT
+# $HOME -- falling back to copying one in from $HOME/.android only if
+# nothing is there yet. Meanwhile the "adb" CLIENT processes this entrypoint
+# and the emulator shell out to internally (visible in the boot log: "adb -s
+# emulator-5554 shell settings put ...") are the external platform-tools
+# binary, which resolves its own signing identity via upstream adb's
+# adb_get_android_dir_path() (packages/modules/adb/adb_utils.cpp):
+# $HOME/.android/adbkey. Two different resolution paths for what is meant to
+# be the same identity is exactly the kind of gap -wipe-data plus a
+# from-scratch AVD can expose: on a real GitHub Actions/KVM run the
+# google_apis/pixel leg authorizes cleanly, but the android-tv leg's own
+# boot log shows adbd rejecting even the emulator's own internal calls
+# ("device unauthorized. This adb server's $ADB_VENDOR_KEYS is not set"),
+# and a prior fix attempt that pre-created the key only at $HOME/.android
+# still failed with a "generate_key(...)" re-generation logged partway
+# through boot -- consistent with something in that ConfigDirs-driven path
+# not finding (or not keeping) the key it expects there. Writing the
+# identical key pair to BOTH locations up front removes the ambiguity
+# regardless of which lookup a given code path takes, and ADB_VENDOR_KEYS is
+# set too so any adb invocation that still looks elsewhere first also finds
+# and trusts it. The CI workflow copies the $HOME copy out for the external
+# `adb connect` step so it presents the same identity too. This is purely
+# additive -- stable, pre-supplied keys instead of ones a given code path
+# might generate on its own -- so it should not affect the already-working
 # pixel_8/android-35 path.
-mkdir -p "$HOME/.android"
-[[ -f "$HOME/.android/adbkey" ]] || adb keygen "$HOME/.android/adbkey"
+mkdir -p "$HOME/.android" "$ANDROID_EMULATOR_HOME"
+if [[ ! -f "$HOME/.android/adbkey" ]]; then
+  adb keygen "$HOME/.android/adbkey"
+fi
+cp -f "$HOME/.android/adbkey" "$ANDROID_EMULATOR_HOME/adbkey"
+cp -f "$HOME/.android/adbkey.pub" "$ANDROID_EMULATOR_HOME/adbkey.pub"
 export ADB_VENDOR_KEYS="$HOME/.android/adbkey"
+
+# Start the adb server now, bound to the key above, before the emulator (and
+# its own internal "adb -s emulator-5554 ..." calls during boot) can trigger
+# an auto-spawned server of its own. google/android-emulator-container-scripts
+# does the same thing for the same reason (see install_adb_keys +
+# start-server in emu/templates/launch-emulator.sh): a server that
+# auto-starts on first use loads whatever key it finds at that moment, and on
+# android-tv that has been observed to reload/regenerate independently of the
+# key already pushed into the guest, producing "adb: device unauthorized"
+# even for the emulator's own internal calls. One long-lived server started
+# up front removes that race.
+adb start-server
 
 IFS=';' read -r _ _ tag abi <<<"$SYSTEM_IMAGE"
 echo no | avdmanager create avd --force --name lease --package "$SYSTEM_IMAGE" \
