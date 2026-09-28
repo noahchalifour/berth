@@ -147,3 +147,40 @@ async def test_reconcile_cleans_up_after_a_crash(engine, store, pods, probe, con
     assert store.get_lease(vanished.lease.id).end_reason == "lost"
     assert set(pods.pods) == {pod_name(0, survivor.lease.id)}
     assert [s.state for s in store.list_slots()] == ["leased", "free", "free"]
+
+
+async def test_slow_boot_returns_a_booting_grant_and_finishes_in_the_background(engine, probe):
+    probe.after = 10**9
+    grant = await engine.acquire("phone", "a", 30, 1, boot_wait_seconds=0.01)
+    assert grant.lease.state == "booting" and grant.adb == "172.24.3.155:5555"
+    # heartbeat polls a booting lease instead of refusing it
+    assert engine.heartbeat(grant.lease.id).lease.state == "booting"
+    probe.after = 0
+    for _ in range(50):
+        await asyncio.sleep(0)
+        if engine.heartbeat(grant.lease.id).lease.state == "leased":
+            break
+    polled = engine.heartbeat(grant.lease.id)
+    assert polled.lease.state == "leased" and polled.lease.expires_at is not None
+    assert engine.store.list_slots()[0].state == "leased"
+
+
+async def test_background_boot_failure_ends_the_lease(engine, probe, pods):
+    probe.after = 10**9
+    grant = await engine.acquire("phone", "a", 30, 1, boot_wait_seconds=0.01)
+    pods.failed.add(pod_name(grant.lease.slot, grant.lease.id))
+    for _ in range(50):
+        await asyncio.sleep(0)
+    with pytest.raises(LeaseNotActive, match="boot_failed"):
+        engine.heartbeat(grant.lease.id)
+    assert engine.store.free_slots() == [0, 1, 2]
+
+
+async def test_release_during_background_boot(engine, probe, pods):
+    probe.after = 10**9
+    grant = await engine.acquire("phone", "a", 30, 1, boot_wait_seconds=0.01)
+    released = await engine.release(grant.lease.id)
+    for _ in range(10):
+        await asyncio.sleep(0)
+    assert released.end_reason == "released"
+    assert pods.pods == {} and engine.store.free_slots() == [0, 1, 2]

@@ -38,3 +38,14 @@ async def test_busy_reports_queue_position(engine):
             await client.call_tool("acquire", {"profile": "phone", "holder": "p"})
         result = await client.call_tool("acquire", {"profile": "phone", "holder": "p", "wait_seconds": 0})
         assert result.is_error and "number 1 in the queue" in result.content[0].text
+
+
+async def test_acquire_answers_before_a_slow_boot_finishes(engine):
+    engine.probe.after = 10**9
+    async with connect(engine) as client:
+        grant = (
+            await client.call_tool("acquire", {"profile": "phone", "holder": "p", "boot_wait_seconds": 0})
+        ).structured_content
+        assert grant["state"] == "booting" and grant["lease_id"]
+        hb = (await client.call_tool("heartbeat", {"lease_id": grant["lease_id"]})).structured_content
+        assert hb["state"] == "booting"

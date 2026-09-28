@@ -56,6 +56,7 @@ class Grant:
     def to_dict(self) -> dict:
         return {
             "lease_id": self.lease.id,
+            "state": self.lease.state,
             "profile": self.lease.profile,
             "slot": self.lease.slot,
             "adb": self.adb,
@@ -81,6 +82,8 @@ class LeaseEngine:
         self.config = config
         self.clock = clock
         self._waiters: deque[asyncio.Future[int]] = deque()
+        # lease id -> the task booting its emulator, while it is booting.
+        self._boots: dict[str, asyncio.Task[None]] = {}
         # Boot durations since the last /metrics scrape; drained into the histogram there.
         self.boot_seconds: list[float] = []
 
@@ -99,7 +102,18 @@ class LeaseEngine:
         return Grant(lease=lease, adb=adb, in_cluster=in_cluster)
 
     # ---- acquire
-    async def acquire(self, profile_name: str, holder: str, ttl_minutes: int, wait_seconds: float) -> Grant:
+    async def acquire(
+        self,
+        profile_name: str,
+        holder: str,
+        ttl_minutes: int,
+        wait_seconds: float,
+        boot_wait_seconds: float | None = None,
+    ) -> Grant:
+        """Claim a slot and boot it. Waits at most boot_wait_seconds (None: the
+        whole boot) for the emulator; past that it returns a grant in state
+        "booting" and the boot finishes in the background, so a client with a
+        request timeout shorter than a cold boot still gets its lease id."""
         profile = self.store.get_profile(profile_name)
         if not self.config.min_ttl_minutes <= ttl_minutes <= self.config.max_ttl_minutes:
             raise Invalid(
@@ -122,18 +136,36 @@ class LeaseEngine:
         )
         self.store.insert_lease(lease)
         self.store.set_slot(slot, SLOT_BOOTING, lease.id)
+        task = asyncio.create_task(self._boot(lease, profile))
+        self._boots[lease.id] = task
+        task.add_done_callback(lambda t: self._boots.pop(lease.id, None) and None)
+        # Consumed here so a background failure is never an unretrieved exception;
+        # the lease row already says boot_failed.
+        task.add_done_callback(lambda t: t.cancelled() or t.exception())
+        try:
+            await asyncio.wait_for(asyncio.shield(task), boot_wait_seconds)
+        except TimeoutError:
+            pass  # still booting: hand back the lease id, heartbeat reports progress
+        except asyncio.CancelledError:
+            if not task.done():
+                task.cancel()
+                await asyncio.gather(task, return_exceptions=True)
+            raise
+        return self.grant(self.store.get_lease(lease.id))
+
+    async def _boot(self, lease: Lease, profile) -> None:
         try:
             await self.pods.create(
                 build_pod(
                     namespace=self.config.namespace,
                     image=self.config.emulator_image,
-                    slot=slot,
+                    slot=lease.slot,
                     lease_id=lease.id,
                     profile=profile,
                 )
             )
             started = self.clock()
-            self.devices[lease.id] = await self._wait_for_boot(pod_name(slot, lease.id))
+            self.devices[lease.id] = await self._wait_for_boot(pod_name(lease.slot, lease.id))
             self.boot_seconds.append(self.clock() - started)
         except asyncio.CancelledError:
             await self._end(lease.id, "cancelled")
@@ -144,9 +176,9 @@ class LeaseEngine:
         except Exception as exc:
             await self._end(lease.id, "boot_failed")
             raise BootFailed(f"could not start the emulator: {exc}") from exc
-        self.store.activate_lease(lease.id, self.clock() + ttl_minutes * 60)
-        self.store.set_slot(slot, SLOT_LEASED, lease.id)
-        return self.grant(self.store.get_lease(lease.id))
+        # False when the lease was released while the boot was finishing.
+        if self.store.activate_lease(lease.id, self.clock() + lease.ttl_minutes * 60):
+            self.store.set_slot(lease.slot, SLOT_LEASED, lease.id)
 
     async def _claim_slot(self, wait_seconds: float) -> int:
         free = self.store.free_slots()
@@ -218,6 +250,11 @@ class LeaseEngine:
         return lease
 
     def heartbeat(self, lease_id: str) -> Grant:
+        """Extend a lease. On a lease that is still booting it only reports the
+        state, which is how a caller polls a boot that outlived acquire."""
+        lease = self.store.get_lease(lease_id)
+        if lease.state == LEASE_BOOTING:
+            return self.grant(lease)
         lease = self._active(lease_id)
         hard_stop = lease.created_at + self.config.max_age_s
         self.store.extend_lease(lease_id, min(self.clock() + lease.ttl_minutes * 60, hard_stop))
@@ -228,6 +265,12 @@ class LeaseEngine:
         if lease.state not in (LEASE_BOOTING, LEASE_LEASED):
             raise LeaseNotActive(f"lease {lease_id} already ended ({lease.end_reason})")
         await self._end(lease_id, reason)
+        boot = self._boots.pop(lease_id, None)
+        if boot is not None:
+            boot.cancel()
+            await asyncio.gather(boot, return_exceptions=True)
+            # The cancelled boot may have created its Pod after _end deleted it.
+            await self.pods.delete(pod_name(lease.slot, lease.id))
         return self.store.get_lease(lease_id)
 
     # ---- background

@@ -11,9 +11,11 @@ from emulator_hub.models import HubError
 INSTRUCTIONS = """\
 Android emulators (phone, tablet, TV) for testing. Workflow:
 1. list_profiles to see what can be booted.
-2. acquire(profile, holder) - blocks until the emulator has booted (up to ~3 min).
-   Returns an `adb` address: run `adb connect <adb>` then use adb, flutter run,
-   or any tool you like. Inside the cluster use `in_cluster` instead.
+2. acquire(profile, holder) - waits up to boot_wait_seconds (default 30) for the
+   emulator to boot. A cold boot can take ~3 min; if it is not done yet you get
+   state "booting" with the lease_id - call heartbeat(lease_id) every ~15s until
+   state is "leased". Then run `adb connect <adb>` and use adb, flutter run, or
+   any tool you like. Inside the cluster use `in_cluster` instead.
 3. heartbeat(lease_id) at least every ttl_minutes or the emulator is destroyed.
 4. release(lease_id) as soon as you are done. Every lease gets a fresh device;
    nothing you install survives release.
@@ -38,6 +40,7 @@ class ProfileList(BaseModel):
 
 class LeaseGrant(BaseModel):
     lease_id: str
+    state: str
     profile: str
     slot: int
     adb: str
@@ -81,22 +84,33 @@ def build_mcp(engine: LeaseEngine) -> MCPServer:
         )
 
     @mcp.tool()
-    async def acquire(profile: str, holder: str, ttl_minutes: int = 30, wait_seconds: int = 300) -> LeaseGrant:
+    async def acquire(
+        profile: str, holder: str, ttl_minutes: int = 30, wait_seconds: int = 300, boot_wait_seconds: int = 30
+    ) -> LeaseGrant:
         """Boot a fresh emulator from `profile` and lease it to you.
 
         holder: who you are, e.g. "claude-code@mac/LAB-71" (shown in the UI).
         ttl_minutes: lease expires this long after the last heartbeat (1-120).
         wait_seconds: how long to queue if all slots are busy before giving up (0-600).
+        boot_wait_seconds: how long to wait for the boot before returning state
+          "booting" (0-600); poll heartbeat(lease_id) until state is "leased".
         """
         try:
-            grant = await engine.acquire(profile, holder, ttl_minutes, max(0, min(wait_seconds, 600)))
+            grant = await engine.acquire(
+                profile,
+                holder,
+                ttl_minutes,
+                max(0, min(wait_seconds, 600)),
+                boot_wait_seconds=max(0, min(boot_wait_seconds, 600)),
+            )
         except HubError as exc:
             raise fail(exc) from exc
         return LeaseGrant(**grant.to_dict())
 
     @mcp.tool()
     async def heartbeat(lease_id: str) -> LeaseGrant:
-        """Extend a lease by its ttl_minutes. Leases hard-stop 4 hours after acquire."""
+        """Extend a lease by its ttl_minutes, or report progress of one still booting.
+        Leases hard-stop 4 hours after acquire."""
         try:
             return LeaseGrant(**engine.heartbeat(lease_id).to_dict())
         except HubError as exc:

@@ -114,11 +114,12 @@ class Store:
             raise NotFound(f"no lease {lease_id!r}")
         return Lease(**dict(row))
 
-    def activate_lease(self, lease_id: str, expires_at: float) -> None:
-        self._db.execute(
+    def activate_lease(self, lease_id: str, expires_at: float) -> bool:
+        cur = self._db.execute(
             "UPDATE leases SET state = ?, expires_at = ? WHERE id = ? AND state = ?",
             (LEASE_LEASED, expires_at, lease_id, LEASE_BOOTING),
         )
+        return cur.rowcount == 1
 
     def extend_lease(self, lease_id: str, expires_at: float) -> None:
         self._db.execute(
