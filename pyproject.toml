@@ -1,6 +1,6 @@
 [project]
 name = "emulator-hub"
-version = "0.1.0"
+version = "0.1.1"
 description = "Lease-based Android emulator pool with an MCP server and a live-view web UI"
 requires-python = ">=3.12"
 dependencies = [
