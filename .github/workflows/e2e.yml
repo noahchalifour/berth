@@ -50,7 +50,9 @@ jobs:
           path: e2e/.state/artifacts
           if-no-files-found: ignore
 
-  # The same suite against real Android emulators under KVM.
+  # The tests that exercise Android itself, against real emulators under KVM.
+  # One 2-core slot: a 4 vCPU runner also hosts kind, and a 1-core emulator
+  # hangs. Multi-slot behaviour is covered by control-plane above.
   real-emulator:
     runs-on: ubuntu-latest
     timeout-minutes: 300
@@ -71,14 +73,14 @@ jobs:
       - name: Cluster up (real emulator)
         env:
           E2E_EMULATOR: real
-          E2E_SLOTS: "2"
+          E2E_SLOTS: "1"
         run: ./e2e/up.sh
       - name: Suite
         env:
           EXTRA: ${{ inputs.pytest_args }}
         run: |
           read -ra extra <<<"$EXTRA"
-          ./e2e/run.sh tests/e2e --timeout=2400 --ignore=tests/e2e/test_image.py "${extra[@]}"
+          ./e2e/run.sh tests/e2e --timeout=2400 --ignore=tests/e2e/test_image.py -m "e2e and android" "${extra[@]}"
       - if: always()
         run: df -h /
       - if: always()

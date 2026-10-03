@@ -36,6 +36,8 @@ def pytest_collection_modifyitems(config, items):
     for item in items:
         if Path(str(item.fspath)).is_relative_to(here):
             item.add_marker(pytest.mark.e2e)
+        if item.get_closest_marker("real_emulator"):
+            item.add_marker(pytest.mark.android)
     # Disruptive tests (hub kills, node loss) run after everything else.
     items.sort(key=lambda i: i.get_closest_marker("disruptive") is not None)
 
@@ -80,8 +82,9 @@ def e2e_profiles(env):
         "form_factor": "phone",
         "system_image": "android-35-google-apis",
         "device": "medium_phone",
-        "ram_mb": 1536 if env.real else 1024,
-        "cores": 1,
+        # A 1-core emulator hangs ("QEMU2 CPU0 thread") on a 4 vCPU CI runner.
+        "ram_mb": 2048 if env.real else 1024,
+        "cores": 2 if env.real else 1,
     }
     with httpx.Client(base_url=f"http://{UI_HOST}", cookies={"e2e_user": "e2e-setup"}, timeout=60) as ui:
         r = ui.put(f"/api/profiles/{E2E_PROFILE}", json=body)

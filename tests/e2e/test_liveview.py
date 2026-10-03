@@ -116,6 +116,7 @@ def inputs(env, kube, adb, leased):
 # ------------------------------------------------------------------ snapshot
 
 
+@pytest.mark.android
 @pytest.mark.parametrize(
     "form_factor,device", [("phone", "medium_phone"), ("tablet", "medium_tablet"), ("tv", "tv_720p")]
 )
@@ -228,6 +229,7 @@ async def test_close_codes_reach_real_clients(env, kube, leased):
     assert await _refusal(ws_url("nope"), COOKIE) == (None, 4404)
 
 
+@pytest.mark.android
 async def test_frames_flow_and_change_with_the_screen(env, inputs, leased):
     async with open_live(leased["lease_id"]) as ws:
         # Touch so even a static real screen produces frames.
@@ -247,6 +249,7 @@ async def test_frames_flow_and_change_with_the_screen(env, inputs, leased):
 # ------------------------------------------------------------------ input
 
 
+@pytest.mark.android
 async def test_touch_lands_at_the_matching_device_pixel(env, inputs, leased):
     w, h = inputs.size()
     async with open_live(leased["lease_id"]) as ws:
@@ -268,6 +271,7 @@ async def test_touch_lands_at_the_matching_device_pixel(env, inputs, leased):
         assert abs(gx - ex * w) <= 0.02 * w + 1 and abs(gy - ey * h) <= 0.02 * h + 1, (gx, gy, ex * w, ey * h)
 
 
+@pytest.mark.android
 async def test_drag_is_a_down_moves_up_sequence(env, inputs, leased):
     async with open_live(leased["lease_id"]) as ws:
         for i in range(6):
@@ -293,6 +297,7 @@ KEYCODES = {
 }  # fmt: skip
 
 
+@pytest.mark.android
 async def test_window_keys_reach_the_device_and_unknown_keys_do_not(env, inputs, leased):
     # Keys the app window sees (Home/Recents/Power/Volume are consumed by the system).
     keys = ["Enter", "Backspace", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "GoBack"]
@@ -338,6 +343,7 @@ async def test_system_keys_have_their_system_effect(env, inputs, leased):
     await wait_until(lambda: "mWakefulness=Awake" in adb.shell(t, "dumpsys power | grep mWakefulness="), 10)
 
 
+@pytest.mark.android
 async def test_text_input_with_symbols_unicode_and_truncation(env, inputs, leased):
     sample = "hi there! #$%&*()_+-=[] 你好 é"
     long = "x" * 600
@@ -379,6 +385,7 @@ async def test_malformed_input_does_not_kill_the_session(env, leased, bad):
         assert frames
 
 
+@pytest.mark.android
 async def test_several_viewers_at_once(env, inputs, leased):
     async with (
         open_live(leased["lease_id"]) as a,
@@ -448,6 +455,7 @@ async def test_abandoned_viewer_is_cleaned_up_server_side(env, kube, inputs, lea
     await wait_until(lambda: inputs.open_streams() == 0, 60, what="server-side stream to close")
 
 
+@pytest.mark.android
 async def test_wss_through_the_ingress(env, leased):
     import ssl
 
@@ -460,6 +468,7 @@ async def test_wss_through_the_ingress(env, leased):
         assert (await recv_frames(ws, 2))[0][:2] == b"\xff\xd8"
 
 
+@pytest.mark.android
 async def test_bandwidth_budget(env, leased):
     """One viewer for 60s stays under 2 MB/s (480px JPEG at quality 70)."""
     budget = 2 * 1024 * 1024
@@ -478,6 +487,7 @@ async def test_bandwidth_budget(env, leased):
 # ------------------------------------------------------------------ browser
 
 
+@pytest.mark.android
 async def test_browser_live_dialog_streams_and_sends_input(env, inputs, leased):
     async with async_playwright() as pw:
         browser = await pw.chromium.launch()

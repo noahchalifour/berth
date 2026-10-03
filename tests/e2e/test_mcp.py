@@ -167,6 +167,7 @@ async def test_status_shows_active_and_free_slots(env, mcp, profile, holder):
 # ------------------------------------------------------------------ behaviour
 
 
+@pytest.mark.android
 async def test_full_agent_flow(env, mcp, adb, profile, holder):
     profiles = await mcp.call("list_profiles")
     assert profile in {p["name"] for p in profiles["profiles"]}
@@ -184,6 +185,7 @@ async def test_full_agent_flow(env, mcp, adb, profile, holder):
     assert rel == {"lease_id": grant["lease_id"], "state": "ended", "end_reason": "released"}
 
 
+@pytest.mark.android
 async def test_default_acquire_answers_well_inside_client_timeouts(env, mcp, hub_env, profile, holder):
     """Regression for #1: a cold boot longer than the default 30s boot wait
     still answers at ~30s with a booting grant."""
@@ -278,6 +280,7 @@ async def test_bad_argument_types_are_validation_errors(env):
             assert "validation" in err_text.lower() or "required" in err_text.lower() or "int" in err_text.lower()
 
 
+@pytest.mark.android
 def test_typescript_sdk_runs_the_same_flow(env, e2e_profiles, profile):
     ts = Path("/opt/mcp-ts")
     if not ts.exists():

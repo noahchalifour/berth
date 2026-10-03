@@ -58,6 +58,7 @@ async def matrix_profile(request, env):
 # ------------------------------------------------------------------ happy path
 
 
+@pytest.mark.android
 @pytest.mark.parametrize("matrix_profile", MATRIX, indirect=True, ids=[m[2] for m in MATRIX])
 async def test_every_catalog_device_boots_and_matches_its_profile(mcp, env, kube, adb, matrix_profile, holder):
     name, body = matrix_profile
@@ -110,6 +111,7 @@ async def test_every_catalog_device_boots_and_matches_its_profile(mcp, env, kube
     await mcp.call("release", lease_id=grant["lease_id"])
 
 
+@pytest.mark.android
 async def test_in_cluster_endpoint_reaches_the_device(mcp, env, kube, profile, holder):
     grant = await acquire_leased(mcp, env, profile, holder)
     host = grant["in_cluster"].rsplit(":", 1)[0]
@@ -132,6 +134,7 @@ async def test_in_cluster_endpoint_reaches_the_device(mcp, env, kube, profile, h
 # ------------------------------------------------------------------ booting grants
 
 
+@pytest.mark.android
 async def test_booting_grant_then_poll_until_leased(mcp, env, kube, profile, holder):
     grant = await mcp.call("acquire", profile=profile, holder=holder, boot_wait_seconds=0)
     assert grant["state"] == "booting" and grant["expires_at"] is None
@@ -209,6 +212,7 @@ async def test_max_age_is_a_hard_stop_despite_heartbeats(mcp, env, hub_env, prof
     assert row["end_reason"] in ("max_age", "expired")
 
 
+@pytest.mark.android
 async def test_release_deletes_the_pod_and_frees_the_slot(mcp, env, kube, adb, profile, holder):
     grant = await acquire_leased(mcp, env, profile, holder)
     name = pod_name(grant["slot"], grant["lease_id"])
@@ -318,6 +322,7 @@ async def _assert_ended(mcp, grant, reason, timeout=60):
     assert st["slots"][grant["slot"]]["lease_id"] != grant["lease_id"]
 
 
+@pytest.mark.android
 async def test_killed_emulator_process_is_reaped_as_lost(mcp, env, kube, profile, holder):
     grant = await acquire_leased(mcp, env, profile, holder)
     name = pod_name(grant["slot"], grant["lease_id"])

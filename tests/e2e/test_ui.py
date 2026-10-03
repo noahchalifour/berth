@@ -118,7 +118,7 @@ async def test_profile_crud(env):
 async def test_profile_in_use_cannot_be_deleted(env, mcp, holder):
     async with ui_client() as ui:
         body = {"form_factor": "phone", "system_image": "android-35-google-apis", "device": "pixel_8",
-                "ram_mb": 1536 if env.real else 1024, "cores": 1}  # fmt: skip
+                "ram_mb": 2048 if env.real else 1024, "cores": 2 if env.real else 1}  # fmt: skip
         assert (await ui.put("/api/profiles/in-use", json=body)).status_code == 200
         grant = await mcp.call("acquire", profile="in-use", holder=holder, boot_wait_seconds=0)
         r = await ui.delete("/api/profiles/in-use")

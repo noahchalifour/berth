@@ -25,6 +25,7 @@ async def lease_row(lease_id):
         return next(r for r in (await ui.get("/api/leases?limit=500")).json() if r["id"] == lease_id)
 
 
+@pytest.mark.android
 async def test_active_lease_survives_a_hub_kill(env, mcp, kube, hubctl, adb, profile, holder):
     grant = await acquire_leased(mcp, env, profile, holder)
     name = pod_name(grant["slot"], grant["lease_id"])

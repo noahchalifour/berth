@@ -24,6 +24,7 @@ from tests.e2e.hub import (
 # ================================================================== emulator Pods (ENG-341)
 
 
+@pytest.mark.android
 async def test_running_pod_is_hardened(env, mcp, kube, profile, holder):
     grant = await acquire_leased(mcp, env, profile, holder)
     name = pod_name(grant["slot"], grant["lease_id"])
@@ -50,6 +51,7 @@ async def test_running_pod_is_hardened(env, mcp, kube, profile, holder):
     assert not kube.exec(name, "sh", "-c", "ls /var/run/secrets/kubernetes.io 2>/dev/null || true").strip()
 
 
+@pytest.mark.android
 async def test_kvm_comes_from_the_device_plugin(env, mcp, kube, profile, holder):
     grant = await acquire_leased(mcp, env, profile, holder)
     name = pod_name(grant["slot"], grant["lease_id"])
@@ -124,6 +126,7 @@ async def _hb_error(mcp, lease_id):
         return str(exc)
 
 
+@pytest.mark.android
 async def test_resources_requests_and_limits(env, mcp, kube, profile, holder, e2e_profiles):
     grant = await acquire_leased(mcp, env, profile, holder)
     pod = kube.pod(pod_name(grant["slot"], grant["lease_id"]))
@@ -203,6 +206,7 @@ async def test_release_removes_the_pod_within_ten_seconds(env, mcp, kube, profil
 # ================================================================== network (ENG-341)
 
 
+@pytest.mark.android
 async def test_each_slot_ip_routes_to_its_own_device(env, mcp, kube, adb, profile, holder):
     grants = [await acquire_leased(mcp, env, profile, f"{holder}-{i}") for i in range(len(env.slot_ips))]
     for g in grants:
@@ -290,6 +294,7 @@ async def test_slots_in_use_tracks_booting_leased_and_free(env, mcp, hub_env, pr
     assert metric(metrics_text(), "emulator_hub_slots_in_use") == 0
 
 
+@pytest.mark.android
 async def test_boot_seconds_histogram(env, mcp, profile, holder):
     before = metrics_text()
     count0 = metric(before, "emulator_hub_boot_seconds_count")
@@ -394,7 +399,7 @@ async def test_first_start_seeds_profiles_and_slots(env, hubctl):
 
     with httpx.Client(base_url=f"http://{UI_HOST}", cookies={"e2e_user": "e2e-setup"}) as ui:
         body = {"form_factor": "phone", "system_image": "android-35-google-apis", "device": "medium_phone",
-                "ram_mb": 1536 if env.real else 1024, "cores": 1}  # fmt: skip
+                "ram_mb": 2048 if env.real else 1024, "cores": 2 if env.real else 1}  # fmt: skip
         ui.put(f"/api/profiles/{E2E_PROFILE}", json=body).raise_for_status()
 
 

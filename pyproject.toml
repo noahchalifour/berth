@@ -46,6 +46,7 @@ addopts = "-m 'not e2e'"
 markers = [
     "e2e: end-to-end against a real cluster (e2e/up.sh)",
     "real_emulator: needs the real Android emulator image (E2E_EMULATOR=real)",
+    "android: exercises the emulator itself; the real-emulator CI job runs these (plus real_emulator)",
     "fake_only: asserts on the fake emulator's event log",
     "disruptive: restarts or breaks the hub or a node; runs last",
 ]
