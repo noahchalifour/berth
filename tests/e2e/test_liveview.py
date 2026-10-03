@@ -394,8 +394,11 @@ async def test_text_input_with_symbols_unicode_and_truncation(env, inputs, lease
         # burst, and the image contract checks exact round-trips of real text.)
         assert 490 <= text.count("x") <= 500, text.count("x")
     else:
-        text = await wait_until(lambda: len(inputs.text()) >= len(sample) + 500 and inputs.text(), 20)
-        assert text == sample + "x" * 500
+        # Exact on the fake: untypeable characters skipped, truncated at 500,
+        # nothing lost (500 chars at 12/s is ~45s of paced typing).
+        want = "".join(c for c in sample if 32 <= ord(c) < 127) + "x" * 500
+        text = await wait_until(lambda: len(inputs.text()) >= len(want) and inputs.text(), 90, interval=2)
+        assert text == want
 
 
 @pytest.mark.xfail(
