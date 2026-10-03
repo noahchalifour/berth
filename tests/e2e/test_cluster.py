@@ -130,8 +130,11 @@ async def test_resources_requests_and_limits(env, mcp, kube, profile, holder, e2
     ram, cores = e2e_profiles[profile]["ram_mb"], e2e_profiles[profile]["cores"]
     res = pod["spec"]["containers"][0]["resources"]
     assert res["requests"]["cpu"] == str(cores)
-    assert res["requests"]["memory"] == f"{ram + 1024}Mi"
-    assert res["limits"]["memory"] == f"{ram + 2048}Mi"
+    from lightkube.utils.quantity import parse_quantity
+
+    # The API server normalises quantities (2048Mi reads back as 2Gi).
+    assert parse_quantity(res["requests"]["memory"]) == (ram + 1024) * 2**20
+    assert parse_quantity(res["limits"]["memory"]) == (ram + 2048) * 2**20
     assert "cpu" not in res["limits"]
 
 
@@ -173,12 +176,13 @@ async def test_never_restarted_labels_annotations_priority(env, mcp, kube, profi
     assert pod is None or pod["status"]["containerStatuses"][0]["restartCount"] == 0
 
 
+@pytest.mark.real_emulator  # needs the CI runner's disk; the fake runs nowhere near 12 GiB
 async def test_emptydir_size_limit_evicts_the_pod(env, mcp, kube, profile, holder):
     grant = await acquire_leased(mcp, env, profile, holder)
     name = pod_name(grant["slot"], grant["lease_id"])
     assert kube.pod(name)["spec"]["volumes"][0]["emptyDir"]["sizeLimit"] == "12Gi"
-    # Fill /avd past 12Gi with a sparse-free write; the kubelet evicts within its housekeeping interval.
-    kube.exec(name, "sh", "-c", "dd if=/dev/zero of=/avd/fill bs=1M count=12600 status=none || true", timeout=900)
+    # Fill /avd past 12Gi; the kubelet evicts within its housekeeping interval.
+    kube.exec(name, "sh", "-c", "dd if=/dev/zero of=/avd/fill bs=4M count=3200 status=none || true", timeout=1200)
 
     async def ended():
         return await _hb_error(mcp, grant["lease_id"])
@@ -242,8 +246,9 @@ def test_hub_rbac_is_least_privilege(env, kube):
     sa = "system:serviceaccount:emulator-hub:emulator-hub"
 
     def can(verb, resource, ns=NS):
-        out = kube.run("auth", "can-i", verb, resource, "-n", ns, "--as", sa, check=False)
-        return out.strip() == "yes"
+        resource, _, sub = resource.partition("/")
+        args = ["auth", "can-i", verb, resource, "-n", ns, "--as", sa] + ([f"--subresource={sub}"] if sub else [])
+        return kube.run(*args, check=False).strip() == "yes"
 
     for verb in ("create", "delete", "get", "list"):
         assert can(verb, "pods"), verb
@@ -529,15 +534,21 @@ async def test_growing_slots(env, kube, hub_env, profile, holder):
         async with McpHolder(env) as m:
             st = await m.call("status")
             assert len(st["slots"]) == n + 1 and st["slots"][n]["state"] == "free"
-            grants = [await m.call("acquire", profile=profile, holder=f"{holder}-{i}", boot_wait_seconds=0)
-                      for i in range(n + 1)]  # fmt: skip
-            last = next(g for g in grants if g["slot"] == n)
-            assert last["adb"] == f"{extra}:5555"
+            # Fill slots 0..n-1 without waiting for their boots; the next lease
+            # gets the new slot. Releasing the fillers frees the kvm devices
+            # (capacity = original slot count) for the new slot's emulator.
+            fillers = [await m.call("acquire", profile=profile, holder=f"{holder}-{i}", boot_wait_seconds=0)
+                       for i in range(n)]  # fmt: skip
+            assert sorted(f["slot"] for f in fillers) == list(range(n))
+            last = await m.call("acquire", profile=profile, holder=f"{holder}-new", boot_wait_seconds=0)
+            assert last["slot"] == n and last["adb"] == f"{extra}:5555"
+            for f in fillers:
+                await m.call("release", lease_id=f["lease_id"])
             g = await _wait_leased(m, env, last)
             if not env.real:
                 assert tcp_banner(extra, 5555) == pod_name(g["slot"], g["lease_id"])
-            for gr in grants:
-                await m.call("release", lease_id=gr["lease_id"])
+            # Release before shrinking back (shrinking under a lease is a known defect).
+            await m.call("release", lease_id=g["lease_id"])
     finally:
         kube.run("-n", NS, "delete", "svc", f"slot-{n}", "--ignore-not-found")
 
@@ -636,9 +647,11 @@ async def test_upgrade_from_v0_1_1(env, mcp, kube, hubctl, holder, request):
     arch = kube.json("get", "node", env.hub_node)["status"]["nodeInfo"]["architecture"]
     if arch != "amd64":
         pytest.skip(f"{old_image} is published for amd64 only (node is {arch})")
+    # The runner has docker but not kind: pull, then import into each node's containerd.
     subprocess.run(["docker", "pull", old_image], check=True, capture_output=True, timeout=600)
-    subprocess.run(["kind", "load", "docker-image", "--name", env.cluster, old_image], check=True,
-                   capture_output=True, timeout=600)  # fmt: skip
+    for node in (env.hub_node, f"{env.cluster}-control-plane", env.kvm_node):
+        subprocess.run(f"docker save {old_image} | docker exec -i {node} ctr -n k8s.io images import -",
+                       shell=True, check=True, capture_output=True, timeout=600)  # fmt: skip
     hubctl.set_image(old_image)
     try:
         body = {"form_factor": "tv", "system_image": "android-36-android-tv", "device": "tv_720p",

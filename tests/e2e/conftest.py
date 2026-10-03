@@ -180,12 +180,21 @@ async def check_invariants(env, kube) -> None:
 
         try:
             await wait_until(settled, 90, interval=1, what="hub to settle")
-        except AssertionError:
+            active = [lease for lease in (await ui.get("/api/leases?limit=500")).json() if lease["state"] != "ended"]
+            assert not active, f"leases still active with every slot free: {active}"
+        except AssertionError as exc:
             st = (await ui.get("/api/status")).json()
             pods = [p["metadata"]["name"] for p in kube.emulator_pods()]
-            raise AssertionError(f"invariants violated: status={st} emulator_pods={pods}") from None
-        active = [lease for lease in (await ui.get("/api/leases?limit=500")).json() if lease["state"] != "ended"]
-        assert not active, f"leases still active with every slot free: {active}"
+            # Report, then reset so one broken test does not cascade into the rest.
+            for name in pods:
+                kube.delete_pod(name, grace=0)
+            active = [r["id"] for r in (await ui.get("/api/leases?limit=500")).json() if r["state"] != "ended"]
+            if active:
+                ids = ",".join(f"'{i}'" for i in active)
+                HubControl(kube).scale(0)
+                HubControl(kube).sql(f"UPDATE leases SET state='ended', end_reason='lost' WHERE id IN ({ids})")
+                HubControl(kube).scale(1)
+            raise AssertionError(f"invariants violated: {exc}; status={st} emulator_pods={pods}") from None
         assert len((await ui.get("/api/status")).json()["slots"]) == len(env.slot_ips)
 
 
@@ -211,5 +220,9 @@ async def invariants(request, env, kube):
     failed = getattr(request.node, "rep_call", None) is not None and request.node.rep_call.failed
     if failed or os.environ.get("E2E_ARTIFACTS_ALWAYS"):
         _dump_artifacts(request, kube)
-    await _release_everything(env)
-    await check_invariants(env, kube)
+    try:
+        await _release_everything(env)
+        await check_invariants(env, kube)
+    except BaseException:
+        _dump_artifacts(request, kube)
+        raise

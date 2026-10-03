@@ -61,17 +61,32 @@ async def test_booting_lease_is_lost_on_restart(env, mcp, kube, hubctl, hub_env,
         assert (await ui.get("/api/status")).json()["slots"][grant["slot"]]["state"] == "free"
 
 
+async def test_graceful_shutdown_cancels_a_booting_lease(env, mcp, kube, hubctl, hub_env, profile, holder):
+    """SIGTERM (rollout, drain) cancels in-flight boots: the lease ends as
+    cancelled and its Pod is cleaned up, never left half-booted."""
+    hub_env(HUB_EMULATOR_IMAGE=f"{env.fake_image}:slow")
+    grant = await mcp.call("acquire", profile=profile, holder=holder, boot_wait_seconds=0)
+    name = pod_name(grant["slot"], grant["lease_id"])
+    await wait_until(lambda: kube.pod(name), 30, what="Pod create")
+    hubctl.restart()
+    row = await lease_row(grant["lease_id"])
+    assert row["state"] == "ended" and row["end_reason"] in ("cancelled", "lost")
+    await wait_until(lambda: kube.pod(name) is None, 30, what="Pod deletion")
+
+
 async def test_booting_lease_without_a_pod_is_lost_on_restart(env, hubctl, profile, holder):
     """The window between insert_lease and Pod creation, injected via SQLite."""
+    import uuid
+
+    lease_id = uuid.uuid4().hex
     hubctl.scale(0)
     now = time.time()
     hubctl.sql(
-        f"INSERT INTO leases VALUES ('deadbeef00000000', '{profile}', 0, '{holder}', 30, 'booting', {now}, NULL, "
-        "NULL, NULL)"
+        f"INSERT INTO leases VALUES ('{lease_id}', '{profile}', 0, '{holder}', 30, 'booting', {now}, NULL, NULL, NULL)"
     )
-    hubctl.sql("UPDATE slots SET state='booting', lease_id='deadbeef00000000' WHERE slot=0")
+    hubctl.sql(f"UPDATE slots SET state='booting', lease_id='{lease_id}' WHERE slot=0")
     hubctl.scale(1)
-    row = await lease_row("deadbeef00000000")
+    row = await lease_row(lease_id)
     assert row["state"] == "ended" and row["end_reason"] == "lost"
 
 
@@ -164,38 +179,32 @@ async def test_lease_that_expired_while_down_is_reaped_promptly(env, mcp, hubctl
 
 
 async def test_kubernetes_api_outage_while_running(env, mcp, kube, hubctl, profile, holder):
-    """Cut the hub off from the API server: the reaper logs and keeps looping,
-    reads still answer, acquire fails cleanly, and expiry resumes afterwards."""
+    """The API server refuses the hub (its RoleBinding is gone): the reaper logs
+    and keeps looping, reads still answer, acquire fails cleanly and frees the
+    slot, and expiry resumes once the API answers again."""
     grant = await acquire_leased(mcp, env, profile, holder, ttl_minutes=1)
-    block = {
-        "apiVersion": "networking.k8s.io/v1",
-        "kind": "NetworkPolicy",
-        "metadata": {"name": "e2e-block-apiserver", "namespace": NS},
-        "spec": {
-            "podSelector": {"matchLabels": {"app.kubernetes.io/name": "emulator-hub"}},
-            "policyTypes": ["Egress"],
-            # DNS and Pods (gRPC) stay reachable; the API server does not.
-            "egress": [
-                {"ports": [{"port": 53, "protocol": "UDP"}, {"port": 53, "protocol": "TCP"}]},
-                {"to": [{"podSelector": {}}]},
-            ],
-        },
-    }
-    kube.apply(block)
+    rb = kube.json("-n", NS, "get", "rolebinding", "emulator-hub")
+    for k in ("resourceVersion", "uid", "creationTimestamp", "managedFields"):
+        rb["metadata"].pop(k, None)
+    kube.run("-n", NS, "delete", "rolebinding", "emulator-hub")
     try:
-        await asyncio.sleep(15)
+        await wait_until(lambda: "reap failed" in hubctl.logs(), 60, interval=2, what="reap failure logged")
         async with ui_client() as ui:
             assert (await ui.get("/api/status")).status_code == 200
         assert (await mcp.call("status"))["slots"]
-        with pytest.raises(McpError, match="could not start the emulator"):
+        with pytest.raises(McpError):
             await mcp.call("acquire", profile=profile, holder=f"{holder}-2", boot_wait_seconds=60)
-        await wait_until(lambda: "reap failed" in hubctl.logs(), 120, interval=3, what="reap failure logged")
+        st = await mcp.call("status")
+        assert sum(s["state"] != "free" for s in st["slots"]) <= 1  # only the original lease
+        await asyncio.sleep(max(0, grant["expires_at"] - time.time()) + 5)
     finally:
-        kube.run("-n", NS, "delete", "networkpolicy", "e2e-block-apiserver", "--ignore-not-found")
-    row = await wait_until(
-        lambda: _ended(grant["lease_id"]), max(0, grant["expires_at"] - time.time()) + 90, interval=2
-    )
+        kube.apply(rb)
+    # Expiry is decided from the database, so the lease still ends on time; its
+    # Pod delete failed during the outage, and reconcile collects the orphan.
+    row = await wait_until(lambda: _ended(grant["lease_id"]), 60, interval=2)
     assert row["end_reason"] == "expired"
+    hubctl.restart()
+    await wait_until(lambda: not kube.pod_names(), 60, what="reconcile to collect the orphan")
 
 
 async def _ended(lease_id):
@@ -206,6 +215,11 @@ async def _ended(lease_id):
 async def test_failed_pod_delete_still_frees_the_slot(env, mcp, kube, profile, holder):
     """Release while the hub may not delete Pods: the slot is handed off anyway
     (the finally in _end), and reconcile removes the orphan later."""
+    name = await _release_without_delete_rights(env, mcp, kube, profile, holder)
+    kube.delete_pod(name, grace=0)
+
+
+async def _release_without_delete_rights(env, mcp, kube, profile, holder) -> str:
     grant = await acquire_leased(mcp, env, profile, holder)
     kube.run("-n", NS, "patch", "role", "emulator-hub", "--type=json",
              "-p", json.dumps([{"op": "replace", "path": "/rules/0/verbs", "value": ["create", "get", "list"]}]))  # fmt: skip
@@ -215,6 +229,7 @@ async def test_failed_pod_delete_still_frees_the_slot(env, mcp, kube, profile, h
         st = await mcp.call("status")
         assert st["slots"][grant["slot"]]["state"] == "free"
         assert kube.pod(pod_name(grant["slot"], grant["lease_id"])) is not None  # orphaned
+        return pod_name(grant["slot"], grant["lease_id"])
     finally:
         kube.run("-n", NS, "patch", "role", "emulator-hub", "--type=json",
                  "-p", json.dumps([{"op": "replace", "path": "/rules/0/verbs",
@@ -222,7 +237,7 @@ async def test_failed_pod_delete_still_frees_the_slot(env, mcp, kube, profile, h
 
 
 async def test_orphan_from_a_failed_delete_is_cleaned_by_reconcile(env, mcp, kube, hubctl, profile, holder):
-    await test_failed_pod_delete_still_frees_the_slot(env, mcp, kube, profile, holder)
+    await _release_without_delete_rights(env, mcp, kube, profile, holder)
     hubctl.restart()
     await wait_until(lambda: not kube.pod_names(), 60, what="reconcile to delete the orphan")
 

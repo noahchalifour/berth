@@ -113,7 +113,7 @@ class Kube:
         cmd = ["kubectl", "--context", self.env.context, *args]
         res = subprocess.run(cmd, capture_output=True, text=True, input=input, timeout=timeout)
         if check and res.returncode != 0:
-            raise RuntimeError(f"{shlex.join(cmd)} failed ({res.returncode}): {res.stderr.strip()}")
+            raise RuntimeError(f"{shlex.join(cmd)} failed ({res.returncode}): {res.stderr.strip()} {res.stdout[-500:]}")
         return res.stdout
 
     def json(self, *args: str) -> Any:
@@ -214,7 +214,7 @@ class HubControl:
         )
         self.wait_serving()
 
-    def wait_serving(self, timeout: float = 60) -> None:
+    def wait_serving(self, timeout: float = 90) -> None:
         """Ready Pods precede ingress-nginx's endpoint update by a moment: wait
         until both ports answer through the ingress, consistently."""
         pod_uid = self.kube.hub_pod()["metadata"]["uid"]
@@ -241,18 +241,31 @@ class HubControl:
         raise AssertionError(f"hub {pod_uid} not serving through the ingress after {timeout}s")
 
     def kill(self) -> str:
-        """SIGKILL the hub (grace 0) and wait for its replacement to be Ready."""
-        old = self.kube.hub_pod()["metadata"]["name"]
-        self.kube.delete_pod(old, grace=0)
+        """Crash the hub: SIGKILL its process from the node (no SIGTERM, no
+        shutdown hooks), then wait for the restarted container to serve."""
+        pod = self.kube.hub_pod()
+        name = pod["metadata"]["name"]
+        restarts = pod["status"]["containerStatuses"][0]["restartCount"]
+        self.kube.kill_container(name)
         deadline = time.monotonic() + 180
         while time.monotonic() < deadline:
-            pods = [p for p in self.kube.hub_pods_all() if p["metadata"]["name"] != old]
-            for p in pods:
-                conds = {c["type"]: c["status"] for c in p.get("status", {}).get("conditions", [])}
-                if conds.get("Ready") == "True":
-                    return p["metadata"]["name"]
+            p = self.kube.pod(name)
+            st = (p or {}).get("status", {}).get("containerStatuses", [{}])[0]
+            if st.get("restartCount", 0) > restarts and st.get("ready"):
+                self.wait_serving()
+                return name
             time.sleep(1)
         raise AssertionError("hub did not come back after kill")
+
+    def sql(self, query: str, attempts: int = 3) -> list[list[Any]]:
+        last: Exception | None = None
+        for _ in range(attempts):
+            try:
+                return self._sql(query)
+            except RuntimeError as exc:
+                last = exc
+                time.sleep(2)
+        raise AssertionError(f"sql failed {attempts}x: {last}")
 
     def scale(self, replicas: int) -> None:
         self.kube.run("-n", NS, "scale", "deploy/emulator-hub", f"--replicas={replicas}")
@@ -282,7 +295,7 @@ class HubControl:
                 return int(line.split()[1])
         raise AssertionError("no VmRSS")
 
-    def sql(self, query: str) -> list[list[Any]]:
+    def _sql(self, query: str) -> list[list[Any]]:
         """Run SQL against /data/hub.db from a throwaway Pod on the shared volume."""
         script = (
             "import json,sqlite3,sys;"
@@ -408,14 +421,21 @@ class McpHolder:
         self._ready = asyncio.get_running_loop().create_future()
 
         async def hold():
-            try:
-                async with mcp_session(self.env, self.token) as m:
-                    self._ready.set_result(m)
-                    await self._stop.wait()
-            except BaseException as exc:
-                if not self._ready.done():
-                    self._ready.set_exception(exc)
-                raise
+            # Connecting right after a hub restart can hit the old backend for a
+            # moment (ingress endpoint lag): retry the handshake, never a call.
+            for attempt in range(10):
+                try:
+                    async with mcp_session(self.env, self.token) as m:
+                        self._ready.set_result(m)
+                        await self._stop.wait()
+                    return
+                except BaseException as exc:
+                    if self._ready.done():
+                        return  # the session was used; the caller saw any error
+                    if attempt == 9 or isinstance(exc, asyncio.CancelledError):
+                        self._ready.set_exception(exc)
+                        return
+                    await asyncio.sleep(1)
 
         self._task = asyncio.create_task(hold())
         return await self._ready

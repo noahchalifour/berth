@@ -65,7 +65,8 @@ jobs:
       - run: sudo apt-get install -y -qq adb
       - run: docker build -t emulator:ci emulator/
       - name: Image size
-        run: docker image inspect -f '{{.Size}}' emulator:ci | awk '{printf "image size: %.1f GB\n", $1/1e9}' | tee -a "$GITHUB_STEP_SUMMARY"
+        run: |
+          docker image inspect -f '{{.Size}}' emulator:ci | awk '{printf "image size: %.1f GB\n", $1/1e9}' | tee -a "$GITHUB_STEP_SUMMARY"
       - name: Image contract
         id: contract
         env:
@@ -75,7 +76,10 @@ jobs:
         run: uv run --frozen --group e2e pytest tests/e2e/test_image.py -m e2e -o addopts= -rA --timeout=1800
       - name: Boot time
         if: always()
-        run: echo "boot ${{ matrix.device }}: ${{ steps.contract.outputs.boot_seconds }}s" | tee -a "$GITHUB_STEP_SUMMARY"
+        env:
+          DEVICE: ${{ matrix.device }}
+          BOOT: ${{ steps.contract.outputs.boot_seconds }}
+        run: echo "boot $DEVICE in ${BOOT}s" | tee -a "$GITHUB_STEP_SUMMARY"
 
   # The full-stack suite gates every release.
   e2e:

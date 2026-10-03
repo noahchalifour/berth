@@ -390,12 +390,14 @@ async def test_several_viewers_at_once(env, inputs, leased):
             await ws.send(json.dumps({"t": "touch", "x": 0.1, "y": 0.1, "down": False}))
         for ws in (a, b, c):
             assert await recv_frames(ws, 2)
+        await wait_until(lambda: len([t for t in inputs.touches() if t[2]]) >= 3, 20, what="3 viewers' taps")
         await c.close()
         for ws in (a, b):
             await ws.send(json.dumps({"t": "touch", "x": 0.2, "y": 0.2, "down": True}))
+            await ws.send(json.dumps({"t": "touch", "x": 0.2, "y": 0.2, "down": False}))
             assert await recv_frames(ws, 2)
-    got = await wait_until(lambda: len([t for t in inputs.touches() if t[2]]) >= 5 and inputs.touches(), 20)
-    assert len([t for t in got if t[2]]) >= 5
+        # Input from the surviving viewers still lands (checked before closing them).
+        await wait_until(lambda: len([t for t in inputs.touches() if t[2]]) >= 5, 20, what="taps after one left")
 
 
 @pytest.mark.parametrize("ending", ["release", "expiry", "lost"])

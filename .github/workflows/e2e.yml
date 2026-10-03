@@ -38,7 +38,11 @@ jobs:
           E2E_EMULATOR: fake
         run: ./e2e/up.sh
       - name: Suite
-        run: ./e2e/run.sh tests/e2e --timeout=1200 --ignore=tests/e2e/test_image.py ${{ inputs.pytest_args }}
+        env:
+          EXTRA: ${{ inputs.pytest_args }}
+        run: |
+          read -ra extra <<<"$EXTRA"
+          ./e2e/run.sh tests/e2e --timeout=1200 --ignore=tests/e2e/test_image.py "${extra[@]}"
       - if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -70,7 +74,11 @@ jobs:
           E2E_SLOTS: "2"
         run: ./e2e/up.sh
       - name: Suite
-        run: ./e2e/run.sh tests/e2e --timeout=2400 --ignore=tests/e2e/test_image.py ${{ inputs.pytest_args }}
+        env:
+          EXTRA: ${{ inputs.pytest_args }}
+        run: |
+          read -ra extra <<<"$EXTRA"
+          ./e2e/run.sh tests/e2e --timeout=2400 --ignore=tests/e2e/test_image.py "${extra[@]}"
       - if: always()
         run: df -h /
       - if: always()
