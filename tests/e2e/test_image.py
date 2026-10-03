@@ -193,7 +193,7 @@ def test_boots_and_reports_the_profile_hardware(booted):
     assert int(hw["hw.ramSize"].rstrip("MB")) >= 2048, hw.get("hw.ramSize")
     assert hw.get("hw.cpu.ncore") == "2"
     # Without a hardware keyboard the emulator drops every gRPC key event.
-    assert hw.get("hw.keyboard") == "yes", hw.get("hw.keyboard")
+    assert hw.get("hw.keyboard") in ("yes", "true"), hw.get("hw.keyboard")
 
 
 def test_snapshot_is_a_jpeg_with_the_device_aspect(booted):
@@ -226,14 +226,16 @@ def unlock(c) -> tuple[dict, str]:
 
 
 def test_grpc_frames_touch_key_and_close(booted):
-    unlock(booted)
+    env, target = unlock(booted)
+    # The probe app flips its background on every touch, so frames must change.
+    adb(env, "-s", target, "install", "-r", "-g", str(APK), timeout=300)
+    adb(env, "-s", target, "shell", "am start -W -n dev.emulatorhub.e2e/.ProbeActivity")
 
     async def run():
         s = screen(booted)
         frames = []
         try:
             before = await s.snapshot()
-            await s.key("GoHome")
             await s.touch(0.5, 0.5, True)
             await s.touch(0.5, 0.5, False)
 
@@ -294,9 +296,12 @@ def test_text_reaches_a_focused_field(booted):
         finally:
             await s.close()
 
+    adb(env, "-s", target, "shell", "logcat -c")
     asyncio.run(press())
     time.sleep(2)
-    assert "key 66 0" in adb(env, "-s", target, "shell", "logcat -d -s E2E:I")
+    log = adb(env, "-s", target, "shell", "logcat -d -s E2E:I")
+    # Exactly one press: a held key would auto-repeat.
+    assert log.count("key 66 0") == 1 and log.count("key 66 1") == 1, log
 
 
 # ------------------------------------------------------------------ adb
@@ -431,3 +436,27 @@ def test_every_catalog_package_is_installed_in_the_image():
     ).stdout  # fmt: skip
     for spec in SYSTEM_IMAGES.values():
         assert spec.package in out, spec.package
+
+
+def test_grpc_gohome_leaves_the_app(booted):
+    env, target = unlock(booted)
+    adb(env, "-s", target, "install", "-r", "-g", str(APK), timeout=300)
+    adb(env, "-s", target, "shell", "am start -W -n dev.emulatorhub.e2e/.ProbeActivity")
+
+    def focused():
+        return adb(env, "-s", target, "shell", "dumpsys window | grep mCurrentFocus")
+
+    assert "dev.emulatorhub.e2e" in focused()
+
+    async def home():
+        s = screen(booted)
+        try:
+            await s.key("GoHome")
+        finally:
+            await s.close()
+
+    asyncio.run(home())
+    deadline = time.monotonic() + 15
+    while time.monotonic() < deadline and "dev.emulatorhub.e2e" in focused():
+        time.sleep(1)
+    assert "dev.emulatorhub.e2e" not in focused()

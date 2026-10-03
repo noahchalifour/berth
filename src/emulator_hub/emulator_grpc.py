@@ -96,7 +96,9 @@ class GrpcScreen:
         await self._stub.sendTouch(pb.TouchEvent(touches=[touch]))
 
     async def key(self, key: str) -> None:
-        await self._stub.sendKey(pb.KeyboardEvent(key=key))
+        # keypress = down + up. The proto default (keydown) never releases the
+        # key, so Android auto-repeats it until the next event arrives.
+        await self._stub.sendKey(pb.KeyboardEvent(key=key, eventType=pb.KeyboardEvent.keypress))
 
     async def text(self, text: str) -> None:
         await self._stub.sendKey(pb.KeyboardEvent(text=text))
