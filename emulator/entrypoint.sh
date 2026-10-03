@@ -65,6 +65,11 @@ adb start-server
 IFS=';' read -r _ _ tag abi <<<"$SYSTEM_IMAGE"
 echo no | avdmanager create avd --force --name lease --package "$SYSTEM_IMAGE" \
   --tag "$tag" --abi "$abi" --device "$DEVICE" >/dev/null
+# avdmanager defaults hw.keyboard=no, and then the emulator silently drops
+# every gRPC sendKey (live-view keys and text): only touch gets through.
+sed -i 's/^hw.keyboard=.*/hw.keyboard=yes/' "$ANDROID_AVD_HOME/lease.avd/config.ini"
+grep -q '^hw.keyboard=' "$ANDROID_AVD_HOME/lease.avd/config.ini" ||
+  echo 'hw.keyboard=yes' >>"$ANDROID_AVD_HOME/lease.avd/config.ini"
 
 # adbd: the emulator binds 127.0.0.1:5555 only; socat publishes it on the Pod
 # IP as :5555 via port 5557 -> see Service targetPort. gRPC (-grpc) already

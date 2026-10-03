@@ -6,7 +6,9 @@ from __future__ import annotations
 import asyncio
 import os
 import re
+import subprocess
 import tempfile
+import threading
 import time
 from pathlib import Path
 
@@ -202,7 +204,7 @@ async def check_invariants(env, kube) -> None:
 
 
 def _dump_artifacts(request, kube) -> None:
-    out = STATE / "artifacts" / re.sub(r"[^\w.-]", "_", request.node.nodeid)[-150:]
+    out = artifact_dir(request)
     out.mkdir(parents=True, exist_ok=True)
     try:
         hub = kube.run("-n", NS, "get", "pods", "-l", "app.kubernetes.io/name=emulator-hub", "-o", "name", check=False)
@@ -217,12 +219,63 @@ def _dump_artifacts(request, kube) -> None:
         (out / "artifact-error.txt").write_text(repr(exc))
 
 
+class PodLogTail:
+    """Follow every emulator Pod's log for the length of a test: the hub deletes
+    a failed Pod at once, so logs fetched afterwards are already gone."""
+
+    def __init__(self, kube, out_dir):
+        self.kube, self.out = kube, out_dir
+        self.procs: dict[str, subprocess.Popen] = {}
+        self._stop = threading.Event()
+        self._thread = threading.Thread(target=self._watch, daemon=True)
+
+    def _watch(self):
+        while not self._stop.is_set():
+            try:
+                names = {p["metadata"]["name"] for p in self.kube.emulator_pods()}
+            except Exception:
+                names = set()
+            for name in names - set(self.procs):
+                self.out.mkdir(parents=True, exist_ok=True)
+                f = open(self.out / f"{name}.stream.log", "w")  # noqa: SIM115 - closed with the process
+                self.procs[name] = subprocess.Popen(
+                    ["kubectl", "--context", self.kube.env.context, "-n", NS, "logs", "-f", "--pod-running-timeout=60s",
+                     name],
+                    stdout=f, stderr=subprocess.STDOUT,
+                )  # fmt: skip
+            self._stop.wait(1)
+
+    def __enter__(self):
+        self._thread.start()
+        return self
+
+    def __exit__(self, *exc):
+        self._stop.set()
+        self._thread.join(5)
+        for p in self.procs.values():
+            p.terminate()
+
+
+def artifact_dir(request):
+    return STATE / "artifacts" / re.sub(r"[^\w.-]", "_", request.node.nodeid)[-150:]
+
+
 @pytest.fixture(autouse=True)
 async def invariants(request, env, kube):
+    tail = PodLogTail(kube, artifact_dir(request) / "stream") if env.real else None
+    if tail:
+        tail.__enter__()
     yield
+    if tail:
+        tail.__exit__()
     failed = getattr(request.node, "rep_call", None) is not None and request.node.rep_call.failed
-    if failed or os.environ.get("E2E_ARTIFACTS_ALWAYS"):
+    keep = failed or bool(os.environ.get("E2E_ARTIFACTS_ALWAYS"))
+    if keep:
         _dump_artifacts(request, kube)
+    elif tail:
+        import shutil
+
+        shutil.rmtree(artifact_dir(request) / "stream", ignore_errors=True)
     try:
         await _release_everything(env)
         await check_invariants(env, kube)

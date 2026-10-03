@@ -189,8 +189,11 @@ def test_boots_and_reports_the_profile_hardware(booted):
     st = asyncio.run(status())
     assert st.booted
     hw = {e.key: e.value for e in st.hardwareConfig.entry}
-    assert hw.get("hw.ramSize") in ("2048", "2048M", "2048MB")
+    # The emulator may raise RAM to the system image's minimum (API 35: 2560).
+    assert int(hw["hw.ramSize"].rstrip("MB")) >= 2048, hw.get("hw.ramSize")
     assert hw.get("hw.cpu.ncore") == "2"
+    # Without a hardware keyboard the emulator drops every gRPC key event.
+    assert hw.get("hw.keyboard") == "yes", hw.get("hw.keyboard")
 
 
 def test_snapshot_is_a_jpeg_with_the_device_aspect(booted):
@@ -208,7 +211,23 @@ def test_snapshot_is_a_jpeg_with_the_device_aspect(booted):
     assert abs(img.height / img.width - h / w) < 0.03
 
 
+def unlock(c) -> tuple[dict, str]:
+    """Connect adb (container key, so this works on every image) and dismiss
+    the keyguard a -wipe-data boot starts behind."""
+    env = fresh_adb()
+    key = subprocess.run(["docker", "exec", c.name, "cat", "/home/emu/.android/adbkey"],
+                         capture_output=True, text=True, check=True).stdout  # fmt: skip
+    Path(env["HOME"], ".android", "adbkey").write_text(key)
+    env["ADB_VENDOR_KEYS"] = f"{env['HOME']}/.android/adbkey"
+    target = f"127.0.0.1:{c.adb_port}"
+    assert connect(env, target) == "device"
+    adb(env, "-s", target, "shell", "wm dismiss-keyguard; locksettings set-disabled true")
+    return env, target
+
+
 def test_grpc_frames_touch_key_and_close(booted):
+    unlock(booted)
+
     async def run():
         s = screen(booted)
         frames = []
@@ -245,9 +264,7 @@ def test_grpc_frames_touch_key_and_close(booted):
 
 
 def test_text_reaches_a_focused_field(booted):
-    env = fresh_adb()
-    target = f"127.0.0.1:{booted.adb_port}"
-    assert connect(env, target) == "device"
+    env, target = unlock(booted)
     adb(env, "-s", target, "install", "-r", "-g", str(APK), timeout=300)
     adb(env, "-s", target, "shell", "logcat -c")
     adb(env, "-s", target, "shell", "am start -W -n dev.emulatorhub.e2e/.ProbeActivity")
@@ -269,6 +286,17 @@ def test_text_reaches_a_focused_field(booted):
             break
         time.sleep(1)
     assert "text hello e2e" in log, log[-2000:]
+
+    async def press():
+        s = screen(booted)
+        try:
+            await s.key("Enter")
+        finally:
+            await s.close()
+
+    asyncio.run(press())
+    time.sleep(2)
+    assert "key 66 0" in adb(env, "-s", target, "shell", "logcat -d -s E2E:I")
 
 
 # ------------------------------------------------------------------ adb

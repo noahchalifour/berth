@@ -75,6 +75,15 @@ jobs:
           E2E_EMULATOR: real
           E2E_SLOTS: "1"
         run: ./e2e/up.sh
+      # Fail fast with the emulator's own log if a plain boot inside kind does not work.
+      - name: Boot probe
+        run: |
+          set -x
+          docker exec emulator-hub-e2e-worker2 ls -ln /dev/kvm
+          ./e2e/run.sh tests/e2e/test_lifecycle.py -k "booting_grant_then_poll" -x
+      - if: failure()
+        name: Boot probe logs
+        run: find e2e/.state/artifacts -name '*.log' -path '*emu-slot*' -exec tail -60 {} \;
       - name: Suite
         env:
           EXTRA: ${{ inputs.pytest_args }}

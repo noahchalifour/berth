@@ -54,6 +54,8 @@ class InputLog:
         if env.real:
             adb.connect(self.target)
             adb.wait_boot_completed(self.target)
+            # A -wipe-data boot starts behind the keyguard, which eats key events.
+            adb.shell(self.target, "wm dismiss-keyguard; locksettings set-disabled true")
             adb.run("-s", self.target, "install", "-r", "-g", str(APK), timeout=300)
             adb.shell(self.target, "logcat -c")
             adb.shell(self.target, "am start -W -n dev.emulatorhub.e2e/.ProbeActivity")
