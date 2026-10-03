@@ -63,6 +63,8 @@ jobs:
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules && sudo udevadm trigger --name-match=kvm
       - run: sudo apt-get install -y -qq adb
+      # Lets a container get containerd 2's RLIMIT_NOFILE (1073741816).
+      - run: sudo sysctl -w fs.nr_open=1073741816
       - run: docker build -t emulator:ci emulator/
       - name: Image size
         run: |

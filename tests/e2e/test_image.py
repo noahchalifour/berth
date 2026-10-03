@@ -242,17 +242,17 @@ def test_grpc_frames_touch_key_and_close(booted):
             async def collect():
                 async for f in s.frames():
                     frames.append(f)
-                    if len(frames) >= 10:
+                    if len(frames) >= 10 and len({bytes(f) for f in frames}) > 1:
                         return
 
             async def poke():
-                for i in range(40):
+                for i in range(200):
                     await s.touch(0.1 + (i % 8) * 0.1, 0.5, True)
                     await s.touch(0.1 + (i % 8) * 0.1, 0.5, False)
                     await asyncio.sleep(0.25)
 
             poker = asyncio.create_task(poke())
-            await asyncio.wait_for(collect(), 60)
+            await asyncio.wait_for(collect(), 90)
             poker.cancel()
             after = await s.snapshot()
             return before, after, frames
@@ -300,8 +300,11 @@ def test_text_reaches_a_focused_field(booted):
     asyncio.run(press())
     time.sleep(2)
     log = adb(env, "-s", target, "shell", "logcat -d -s E2E:I")
-    # Exactly one press: a held key would auto-repeat.
-    assert log.count("key 66 0") == 1 and log.count("key 66 1") == 1, log
+    # At most one press: a held key auto-repeats. (On TV the leanback IME
+    # consumes Enter before the window sees it.)
+    assert log.count("key 66 0") <= 1, log
+    if "android-tv" not in SYSTEM_IMAGE:
+        assert log.count("key 66 0") == 1 and log.count("key 66 1") == 1, log
 
 
 # ------------------------------------------------------------------ adb
@@ -465,6 +468,8 @@ def test_grpc_gohome_leaves_the_app(booted):
 def test_boots_under_containerd_2s_huge_nofile_limit():
     """containerd >= 2 starts containers with RLIMIT_NOFILE=1073741816, and the
     emulator's vCPU threads hang at boot under it. The entrypoint clamps it."""
+    if int(Path("/proc/sys/fs/nr_open").read_text()) < 1073741816:
+        pytest.skip("raise fs.nr_open to 1073741816 to run this (CI does)")
     with container("--device", "/dev/kvm", "--ulimit", "nofile=1073741816:1073741816") as c:
         assert _wait_booted(c, timeout=300), c.logs()[-3000:]
         assert "hanging thread" not in c.logs()

@@ -540,6 +540,26 @@ class Adb:
     def disconnect(self, target: str) -> None:
         self.run("disconnect", target, check=False)
 
+    def focus_app(self, target: str, component: str, timeout: float = 90) -> None:
+        """Start `component` and keep dismissing the keyguard until it really
+        holds input focus: a -wipe-data boot raises the keyguard a little after
+        sys.boot_completed, and anything sent before then goes to the lock screen."""
+        package = component.split("/")[0]
+        self.shell(target, "settings put secure lockscreen.disabled 1; locksettings set-disabled true")
+        deadline = time.monotonic() + timeout
+        focus = ""
+        while time.monotonic() < deadline:
+            self.shell(target, "wm dismiss-keyguard; input keyevent 82")
+            self.shell(target, f"am start -W -n {component}")
+            time.sleep(2)
+            focus = self.shell(target, "dumpsys window | grep mCurrentFocus")
+            keyguard = self.shell(target, "dumpsys window | grep isKeyguardShowing")
+            if package in focus and "isKeyguardShowing=true" not in keyguard:
+                time.sleep(3)  # and it stays there
+                if package in self.shell(target, "dumpsys window | grep mCurrentFocus"):
+                    return
+        raise AssertionError(f"{component} never got input focus: {focus}")
+
     def wait_boot_completed(self, target: str, timeout: float = 300) -> None:
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:

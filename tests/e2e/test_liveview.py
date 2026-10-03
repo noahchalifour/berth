@@ -54,12 +54,9 @@ class InputLog:
         if env.real:
             adb.connect(self.target)
             adb.wait_boot_completed(self.target)
-            # A -wipe-data boot starts behind the keyguard, which eats key events.
-            adb.shell(self.target, "wm dismiss-keyguard; locksettings set-disabled true")
             adb.run("-s", self.target, "install", "-r", "-g", str(APK), timeout=300)
+            adb.focus_app(self.target, "dev.emulatorhub.e2e/.ProbeActivity")
             adb.shell(self.target, "logcat -c")
-            adb.shell(self.target, "am start -W -n dev.emulatorhub.e2e/.ProbeActivity")
-            time.sleep(2)
 
     def size(self) -> tuple[int, int]:
         if not self.env.real:
@@ -328,17 +325,21 @@ async def test_system_keys_have_their_system_effect(env, inputs, leased):
         return adb.shell(t, "dumpsys window | grep -E 'mCurrentFocus|mFocusedApp' | head -1")
 
     def volume():
-        return adb.shell(t, "cmd media_session volume --stream 3 --get")
+        # Whichever stream the volume keys adjust right now (ring or music),
+        # read from the audio service's state dump.
+        return adb.shell(t, "dumpsys audio | grep -E '^- STREAM_(RING|MUSIC):' -A3 | grep -E 'Current:|streamVolume'")
 
     assert "dev.emulatorhub.e2e" in focused()
     await send("GoHome")
     await wait_until(lambda: "dev.emulatorhub.e2e" not in focused(), 10, what="home")
     await send("AppSwitch")
     await wait_until(lambda: re.search(r"Recents|recents|Launcher|Overview|tvlauncher", focused()), 10)
+    adb.shell(t, "media volume --stream 3 --set 3 || cmd media_session volume --stream 3 --set 3; true")
     before = volume()
-    await send("AudioVolumeUp")
-    await wait_until(lambda: volume() != before, 10, what="volume up")
     await send("AudioVolumeDown")
+    await send("AudioVolumeDown")
+    await wait_until(lambda: volume() != before, 15, what="volume keys to change a stream volume")
+    await send("AudioVolumeUp")
     await send("Power")
     await wait_until(lambda: "mWakefulness=Asleep" in adb.shell(t, "dumpsys power | grep mWakefulness="), 10)
     await send("Power")
