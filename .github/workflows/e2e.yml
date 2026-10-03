@@ -80,6 +80,8 @@ jobs:
           ./e2e/diagnose-boot.sh emulator-hub-emulator:e2e none
           ./e2e/diagnose-boot.sh emulator-hub-emulator:e2e 4096m
           ./e2e/diagnose-boot.sh emulator-hub-emulator:e2e 6144m
+      - name: Boot diagnostics (in kind, Pod variants)
+        run: uv run --frozen python e2e/bisect-pod.py kind-emulator-hub-e2e emulator-hub-emulator:e2e
       # Fail fast with the emulator's own log if a plain boot inside kind does not work.
       - name: Boot probe
         run: |
