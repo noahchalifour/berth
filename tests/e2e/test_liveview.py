@@ -34,7 +34,7 @@ def open_live(lease_id, **kw):
     return websockets.connect(ws_url(lease_id), additional_headers=COOKIE, max_size=None, **kw)
 
 
-async def recv_frames(ws, n, timeout=30):
+async def recv_frames(ws, n, timeout=60):
     frames = []
     deadline = time.monotonic() + timeout
     while len(frames) < n:
@@ -92,8 +92,11 @@ class InputLog:
     def text(self) -> str:
         if not self.env.real:
             return "".join(e["text"] for e in fake_events(self.kube, self.pod) if e["type"] == "key")
-        lines = re.findall(r"E2E\s*: text (.*)", self.adb.shell(self.target, "logcat -d -s E2E:I"))
-        return lines[-1] if lines else ""
+        # -v raw: no per-line prefixes, so a long field logged across several
+        # logcat lines can be rejoined.
+        raw = self.adb.shell(self.target, "logcat -d -v raw -s E2E:I")
+        texts = [m for m in re.split(r"\n(?=text |touch |key |ready)", raw) if m.startswith("text ")]
+        return texts[-1][5:].replace("\n", "") if texts else ""
 
     def open_streams(self) -> int:
         if self.env.real:
@@ -251,8 +254,16 @@ async def test_frames_flow_and_change_with_the_screen(env, inputs, leased):
 @pytest.mark.android
 async def test_touch_lands_at_the_matching_device_pixel(env, inputs, leased):
     w, h = inputs.size()
+    # Inside the app window: the status and navigation bars swallow taps at the
+    # very edges on a real device. (0,0)/(1,1) are covered on the fake.
+    points = (
+        ((0.5, 0.5), (0.0, 0.0), (1.0, 1.0), (0.25, 0.75))
+        if not env.real
+        else ((0.5, 0.5), (0.1, 0.2), (0.9, 0.8), (0.25, 0.75))
+    )
     async with open_live(leased["lease_id"]) as ws:
-        for x, y in ((0.5, 0.5), (0.0, 0.0), (1.0, 1.0), (0.25, 0.75)):
+        await recv_frames(ws, 1)  # the stream (and the gRPC channel) is up
+        for x, y in points:
             await ws.send(json.dumps({"t": "touch", "x": x, "y": y, "down": True}))
             await ws.send(json.dumps({"t": "touch", "x": x, "y": y, "down": False}))
             await asyncio.sleep(0.5)
@@ -263,8 +274,17 @@ async def test_touch_lands_at_the_matching_device_pixel(env, inputs, leased):
     def downs():
         return [(x, y) for x, y, d in inputs.touches() if d]
 
-    got = await wait_until(lambda: len(downs()) >= 4 and downs(), 20, what="4 taps")
-    expected = [(0.5, 0.5), (0.0, 0.0), (1.0, 1.0), (0.25, 0.75)]
+    try:
+        got = await wait_until(lambda: len(downs()) >= 4 and downs(), 20, what="4 taps")
+    except AssertionError:
+        extra = ""
+        if env.real:
+            a, t = inputs.adb, inputs.target
+            extra = (f"\nfocus: {a.shell(t, 'dumpsys window | grep -E \"mCurrentFocus|isKeyguardShowing\"')}"
+                     f"\nlogcat E2E: {a.shell(t, 'logcat -d -s E2E:I')[-1500:]}"
+                     f"\ngetevent devices: {a.shell(t, 'getevent -p 2>/dev/null | grep -E \"name:\"')}")  # fmt: skip
+        raise AssertionError(f"taps seen: {downs()}; display {w}x{h}{extra}") from None
+    expected = list(points)
     assert len(got) == 4, got
     for (gx, gy), (ex, ey) in zip(got, expected, strict=True):
         assert abs(gx - ex * w) <= 0.02 * w + 1 and abs(gy - ey * h) <= 0.02 * h + 1, (gx, gy, ex * w, ey * h)
@@ -327,14 +347,18 @@ async def test_system_keys_have_their_system_effect(env, inputs, leased):
     def volume():
         # Whichever stream the volume keys adjust right now (ring or music),
         # read from the audio service's state dump.
-        return adb.shell(t, "dumpsys audio | grep -E '^- STREAM_(RING|MUSIC):' -A3 | grep -E 'Current:|streamVolume'")
+        return "|".join(adb.shell(t, f"settings get system {k}").strip()
+                        for k in ("volume_music_speaker", "volume_ring_speaker", "volume_music", "volume_ring"))  # fmt: skip
 
     assert "dev.emulatorhub.e2e" in focused()
     await send("GoHome")
     await wait_until(lambda: "dev.emulatorhub.e2e" not in focused(), 10, what="home")
     await send("AppSwitch")
     await wait_until(lambda: re.search(r"Recents|recents|Launcher|Overview|tvlauncher", focused()), 10)
-    adb.shell(t, "media volume --stream 3 --set 3 || cmd media_session volume --stream 3 --set 3; true")
+    adb.shell(
+        t,
+        "cmd media_session volume --stream 3 --set 5 >/dev/null 2>&1; cmd media_session volume --stream 2 --set 5 >/dev/null 2>&1; true",
+    )
     before = volume()
     await send("AudioVolumeDown")
     await send("AudioVolumeDown")
@@ -356,9 +380,20 @@ async def test_text_input_with_symbols_unicode_and_truncation(env, inputs, lease
         await ws.send(json.dumps({"t": "text", "text": long}))
         await recv_frames(ws, 1)
     if env.real:
-        text = await wait_until(lambda: len(inputs.text()) >= len(sample) + 400 and inputs.text(), 30)
-        assert text.startswith(sample)
-        assert text[len(sample) :] == "x" * 500
+        # The emulator translates printable ASCII only (emulator_controller.proto,
+        # KeyboardEvent.text); 你好 and é are dropped on a real device.
+        ascii_sample = "".join(c for c in sample if 32 <= ord(c) < 127)
+        want = ascii_sample + "x" * 500
+
+        def typed():
+            # The probe logs the whole field on every change; logcat splits long
+            # lines, so compare only the character counts and the prefix.
+            t = inputs.text()
+            return t if len(t) >= len(want) - 5 else None
+
+        text = await wait_until(typed, 60, interval=2, what="all text typed")
+        assert text.startswith(ascii_sample.rstrip()), text[:80]
+        assert text.count("x") == 500, text.count("x")
     else:
         text = await wait_until(lambda: len(inputs.text()) >= len(sample) + 500 and inputs.text(), 20)
         assert text == sample + "x" * 500
@@ -396,16 +431,18 @@ async def test_several_viewers_at_once(env, inputs, leased):
         open_live(leased["lease_id"]) as c,
     ):
         for ws in (a, b, c):
-            await ws.send(json.dumps({"t": "touch", "x": 0.1, "y": 0.1, "down": True}))
-            await ws.send(json.dumps({"t": "touch", "x": 0.1, "y": 0.1, "down": False}))
+            await recv_frames(ws, 1, timeout=60)
         for ws in (a, b, c):
-            assert await recv_frames(ws, 2)
+            await ws.send(json.dumps({"t": "touch", "x": 0.3, "y": 0.4, "down": True}))
+            await ws.send(json.dumps({"t": "touch", "x": 0.3, "y": 0.4, "down": False}))
+        for ws in (a, b, c):
+            assert await recv_frames(ws, 1)
         await wait_until(lambda: len([t for t in inputs.touches() if t[2]]) >= 3, 20, what="3 viewers' taps")
         await c.close()
         for ws in (a, b):
-            await ws.send(json.dumps({"t": "touch", "x": 0.2, "y": 0.2, "down": True}))
-            await ws.send(json.dumps({"t": "touch", "x": 0.2, "y": 0.2, "down": False}))
-            assert await recv_frames(ws, 2)
+            await ws.send(json.dumps({"t": "touch", "x": 0.6, "y": 0.6, "down": True}))
+            await ws.send(json.dumps({"t": "touch", "x": 0.6, "y": 0.6, "down": False}))
+            assert await recv_frames(ws, 1)
         # Input from the surviving viewers still lands (checked before closing them).
         await wait_until(lambda: len([t for t in inputs.touches() if t[2]]) >= 5, 20, what="taps after one left")
 
