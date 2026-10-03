@@ -75,6 +75,11 @@ jobs:
           E2E_EMULATOR: real
           E2E_SLOTS: "1"
         run: ./e2e/up.sh
+      - name: Boot diagnostics (plain Docker, Pod-equivalent memory caps)
+        run: |
+          ./e2e/diagnose-boot.sh emulator-hub-emulator:e2e none
+          ./e2e/diagnose-boot.sh emulator-hub-emulator:e2e 4096m
+          ./e2e/diagnose-boot.sh emulator-hub-emulator:e2e 6144m
       # Fail fast with the emulator's own log if a plain boot inside kind does not work.
       - name: Boot probe
         run: |

@@ -377,6 +377,14 @@ async def test_api_rejecting_pod_create_is_boot_failed_immediately(mcp, env, kub
         }
     )
     try:
+        # A new quota only bites once the quota controller has computed its usage.
+        await wait_until(
+            lambda: (
+                kube.json("-n", "emulator-hub", "get", "resourcequota", "e2e-no-pods").get("status", {}).get("used")
+            ),
+            30,
+            what="quota status",
+        )
         started = time.monotonic()
         with pytest.raises(McpError) as err:
             await mcp.call("acquire", profile=profile, holder=holder, boot_wait_seconds=60)
