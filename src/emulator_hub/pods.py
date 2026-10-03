@@ -3,7 +3,7 @@ the `PodBackend` protocol, so tests use FakePods instead of a cluster."""
 
 from typing import Protocol
 
-from emulator_hub.catalog import DISPLAY_OVERHEAD_MB, SYSTEM_IMAGES
+from emulator_hub.catalog import DEVICE_MIN_RAM_MB, DISPLAY_OVERHEAD_MB, SYSTEM_IMAGES
 from emulator_hub.models import Profile
 
 LABEL_APP = "app.kubernetes.io/name"
@@ -24,7 +24,11 @@ def memory_mb(profile: Profile) -> tuple[int, int]:
     """(request, limit) in MiB. The guest gets at least the image's minimum RAM
     and the display adds host-side buffers; a limit below that is an OOMKill
     mid-boot, which the hub can only report as a failed boot."""
-    guest = max(profile.ram_mb, SYSTEM_IMAGES[profile.system_image].min_ram_mb)
+    guest = max(
+        profile.ram_mb,
+        SYSTEM_IMAGES[profile.system_image].min_ram_mb,
+        DEVICE_MIN_RAM_MB.get(profile.device, 0),
+    )
     overhead = DISPLAY_OVERHEAD_MB[profile.device]
     return guest + overhead, guest + overhead + 1024
 

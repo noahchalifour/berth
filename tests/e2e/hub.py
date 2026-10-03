@@ -549,6 +549,10 @@ class Adb:
         deadline = time.monotonic() + timeout
         focus = ""
         while time.monotonic() < deadline:
+            focus = self.shell(target, "dumpsys window | grep mCurrentFocus")
+            if "Not Responding" in focus:
+                # A launcher ANR dialog on a slow (nested-virt) boot: dismiss it ("Wait").
+                self.shell(target, "input keyevent 4; am broadcast -a android.intent.action.CLOSE_SYSTEM_DIALOGS")
             self.shell(target, "wm dismiss-keyguard; input keyevent 82")
             self.shell(target, f"am start -W -n {component}")
             time.sleep(2)

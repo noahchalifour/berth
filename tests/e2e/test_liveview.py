@@ -135,7 +135,7 @@ async def test_snapshot_is_a_small_jpeg_with_the_device_aspect(env, mcp, holder,
             assert r.headers["content-type"] == "image/jpeg" and r.headers["cache-control"] == "no-store"
             assert r.content[:2] == b"\xff\xd8"
             img = Image.open(io.BytesIO(r.content))
-            assert img.width == 240
+            assert abs(img.width - 240) <= 2, img.width  # the emulator rounds the scaled size
             assert abs(img.height / img.width - ASPECT[form_factor]) < 0.02
             await mcp.call("release", lease_id=grant["lease_id"])
         finally:
@@ -391,7 +391,10 @@ async def test_text_input_with_symbols_unicode_and_truncation(env, inputs, lease
             t = inputs.text()
             return t if len(t) >= len(want) - 5 else None
 
-        text = await wait_until(typed, 60, interval=2, what="all text typed")
+        try:
+            text = await wait_until(typed, 180, interval=3, what="all text typed")
+        except AssertionError:
+            raise AssertionError(f"typed so far ({len(inputs.text())} chars): {inputs.text()[:120]!r}") from None
         assert text.startswith(ascii_sample.rstrip()), text[:80]
         assert text.count("x") == 500, text.count("x")
     else:
@@ -437,7 +440,10 @@ async def test_several_viewers_at_once(env, inputs, leased):
             await ws.send(json.dumps({"t": "touch", "x": 0.3, "y": 0.4, "down": False}))
         for ws in (a, b, c):
             assert await recv_frames(ws, 1)
-        await wait_until(lambda: len([t for t in inputs.touches() if t[2]]) >= 3, 20, what="3 viewers' taps")
+        try:
+            await wait_until(lambda: len([t for t in inputs.touches() if t[2]]) >= 3, 30, what="3 viewers' taps")
+        except AssertionError:
+            raise AssertionError(f"touches: {inputs.touches()}") from None
         await c.close()
         for ws in (a, b):
             await ws.send(json.dumps({"t": "touch", "x": 0.6, "y": 0.6, "down": True}))

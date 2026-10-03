@@ -108,8 +108,12 @@ async def test_every_catalog_device_boots_and_matches_its_profile(mcp, env, kube
     assert ("feature:android.software.leanback" in features) == (body["form_factor"] == "tv")
     assert int(adb.shell(target, "nproc").strip()) == body["cores"]
     mem_kb = int(adb.shell(target, "grep MemTotal /proc/meminfo").split()[1])
-    # The emulator raises RAM to the system image's minimum (API 35: 2560 MB).
-    effective = max(body["ram_mb"], 2560 if api >= 35 else 0)
+    # The emulator raises guest RAM to the system image's minimum (API 35: 2560
+    # MB) and to the device definition's own RAM (pixel/medium tablets: 4 GB).
+    from emulator_hub.catalog import DEVICE_MIN_RAM_MB
+
+    effective = max(body["ram_mb"], SYSTEM_IMAGES[body["system_image"]].min_ram_mb,
+                    DEVICE_MIN_RAM_MB.get(body["device"], 0))  # fmt: skip
     assert 0.6 * body["ram_mb"] * 1024 <= mem_kb <= 1.05 * effective * 1024, mem_kb
     # Usable: install, launch and screenshot the probe app.
     adb.run("-s", target, "install", "-r", "-g", str(APK), timeout=300)

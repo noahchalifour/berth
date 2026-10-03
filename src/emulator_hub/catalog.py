@@ -34,6 +34,10 @@ SYSTEM_IMAGES: dict[str, SystemImage] = {
     ),
 }
 
+# Guest RAM the emulator enforces for a device definition, whatever -memory
+# says (from the emulator's own log: "Increasing RAM size to 4096MB").
+DEVICE_MIN_RAM_MB: dict[str, int] = {"pixel_tablet": 4096, "medium_tablet": 4096}
+
 # Extra host memory a device's display costs the emulator (gfxstream and
 # SwiftShader framebuffers scale with the panel), on top of guest RAM.
 DISPLAY_OVERHEAD_MB: dict[str, int] = {
