@@ -16,7 +16,7 @@ from emulator_hub._grpc import emulator_controller_pb2_grpc as rpc
 from emulator_hub.pods import GRPC_PORT
 
 TEXT_CHUNK = 1
-TEXT_CHUNK_GAP_S = 0.06
+TEXT_CHUNK_GAP_S = 0.08
 MAX_WIDTH = 480
 JPEG_QUALITY = 70
 KEYS = frozenset(
@@ -107,7 +107,7 @@ class GrpcScreen:
         # The emulator drops a whole text event longer than ~15 characters,
         # loses characters when events arrive faster than it types them, and
         # under load can leave Shift latched across events. One character per
-        # event at human typing pace (~16 chars/s) is the reliable rate.
+        # event at fast-human typing pace (~12 chars/s) is the reliable rate.
         for i in range(0, len(text), TEXT_CHUNK):
             if i:
                 await asyncio.sleep(TEXT_CHUNK_GAP_S)

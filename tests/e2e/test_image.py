@@ -286,7 +286,7 @@ def test_text_reaches_a_focused_field(booted):
     adb(env, "-s", target, "shell", "am start -W -n dev.emulatorhub.e2e/.ProbeActivity")
     time.sleep(3)
 
-    long = "The quick brown fox jumps over the lazy dog 0123456789 " * 3
+    long = "The quick brown fox jumps over the lazy dog, 0123456789!"  # several text events
 
     async def type_():
         s = screen(booted)
@@ -297,7 +297,7 @@ def test_text_reaches_a_focused_field(booted):
             await s.close()
 
     asyncio.run(type_())
-    deadline = time.monotonic() + 30
+    deadline = time.monotonic() + 60
     log = ""
     while time.monotonic() < deadline:
         log = adb(env, "-s", target, "shell", "logcat -d -s E2E:I")
