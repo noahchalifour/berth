@@ -540,6 +540,19 @@ class Adb:
     def disconnect(self, target: str) -> None:
         self.run("disconnect", target, check=False)
 
+    def install(self, target: str, apk, attempts: int = 5) -> None:
+        """adb install, retried: right after boot the package manager can
+        refuse with an empty reason."""
+        last: Exception | None = None
+        for _ in range(attempts):
+            try:
+                self.run("-s", target, "install", "-r", "-g", str(apk), timeout=300)
+                return
+            except RuntimeError as exc:
+                last = exc
+                time.sleep(5)
+        raise AssertionError(f"install failed {attempts}x: {last}")
+
     def focus_app(self, target: str, component: str, timeout: float = 90) -> None:
         """Start `component` and keep dismissing the keyguard until it really
         holds input focus: a -wipe-data boot raises the keyguard a little after

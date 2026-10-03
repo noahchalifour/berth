@@ -161,6 +161,20 @@ def adb(env, *args, check=True, timeout=120) -> str:
     return r.stdout.replace("\r", "")
 
 
+def install_probe(env, target, attempts=5) -> None:
+    """adb install, retried: right after boot the package manager can refuse
+    with an empty reason."""
+    last = None
+    for _ in range(attempts):
+        try:
+            adb(env, "-s", target, "install", "-r", "-g", str(APK), timeout=300)
+            return
+        except AssertionError as exc:
+            last = exc
+            time.sleep(5)
+    raise last
+
+
 def connect(env, target, timeout=120) -> str:
     deadline = time.monotonic() + timeout
     state = ""
@@ -228,7 +242,7 @@ def unlock(c) -> tuple[dict, str]:
 def test_grpc_frames_touch_key_and_close(booted):
     env, target = unlock(booted)
     # The probe app flips its background on every touch, so frames must change.
-    adb(env, "-s", target, "install", "-r", "-g", str(APK), timeout=300)
+    install_probe(env, target)
     adb(env, "-s", target, "shell", "am start -W -n dev.emulatorhub.e2e/.ProbeActivity")
 
     async def run():
@@ -267,7 +281,7 @@ def test_grpc_frames_touch_key_and_close(booted):
 
 def test_text_reaches_a_focused_field(booted):
     env, target = unlock(booted)
-    adb(env, "-s", target, "install", "-r", "-g", str(APK), timeout=300)
+    install_probe(env, target)
     adb(env, "-s", target, "shell", "logcat -c")
     adb(env, "-s", target, "shell", "am start -W -n dev.emulatorhub.e2e/.ProbeActivity")
     time.sleep(3)
@@ -449,7 +463,7 @@ def test_every_catalog_package_is_installed_in_the_image():
 
 def test_grpc_gohome_leaves_the_app(booted):
     env, target = unlock(booted)
-    adb(env, "-s", target, "install", "-r", "-g", str(APK), timeout=300)
+    install_probe(env, target)
     adb(env, "-s", target, "shell", "am start -W -n dev.emulatorhub.e2e/.ProbeActivity")
 
     def focused():

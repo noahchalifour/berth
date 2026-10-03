@@ -168,7 +168,7 @@ async def test_extreme_profiles_boot_without_oom(env, mcp, kube, adb, holder, ra
         grant = await acquire_leased(mcp, env, f"x-{ram_mb}", holder)
         adb.connect(grant["adb"])
         adb.wait_boot_completed(grant["adb"])
-        adb.run("-s", grant["adb"], "install", "-r", str(APK), timeout=300)
+        adb.install(grant["adb"], APK)
         pod = kube.pod(pod_name(grant["slot"], grant["lease_id"]))
         status = pod["status"]["containerStatuses"][0]
         assert status["restartCount"] == 0 and "terminated" not in status.get("lastState", {})

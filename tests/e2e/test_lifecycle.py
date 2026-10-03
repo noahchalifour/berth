@@ -116,7 +116,7 @@ async def test_every_catalog_device_boots_and_matches_its_profile(mcp, env, kube
                     DEVICE_MIN_RAM_MB.get(body["device"], 0))  # fmt: skip
     assert 0.6 * body["ram_mb"] * 1024 <= mem_kb <= 1.05 * effective * 1024, mem_kb
     # Usable: install, launch and screenshot the probe app.
-    adb.run("-s", target, "install", "-r", "-g", str(APK), timeout=300)
+    adb.install(target, APK)
     adb.focus_app(target, "dev.emulatorhub.e2e/.ProbeActivity")
     png = subprocess.run(
         ["adb", "-s", target, "exec-out", "screencap", "-p"], env=adb.env, capture_output=True, timeout=60
@@ -257,7 +257,7 @@ async def test_release_deletes_the_pod_and_frees_the_slot(mcp, env, kube, adb, p
 async def test_every_lease_gets_a_fresh_device(mcp, env, adb, profile, holder):
     a = await acquire_leased(mcp, env, profile, holder)
     adb.connect(a["adb"])
-    adb.run("-s", a["adb"], "install", "-r", str(APK), timeout=300)
+    adb.install(a["adb"], APK)
     adb.shell(a["adb"], "echo marker > /sdcard/e2e-marker")
     await mcp.call("release", lease_id=a["lease_id"])
     b = await acquire_leased(mcp, env, profile, holder)

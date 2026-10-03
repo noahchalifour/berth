@@ -54,7 +54,7 @@ class InputLog:
         if env.real:
             adb.connect(self.target)
             adb.wait_boot_completed(self.target)
-            adb.run("-s", self.target, "install", "-r", "-g", str(APK), timeout=300)
+            adb.install(self.target, APK)
             adb.focus_app(self.target, "dev.emulatorhub.e2e/.ProbeActivity")
             adb.shell(self.target, "logcat -c")
 
