@@ -20,3 +20,4 @@ nodes:
     extraMounts:
       - hostPath: ${DATA_DIR}
         containerPath: /e2e-data
+${KVM_MOUNT}

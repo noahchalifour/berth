@@ -49,6 +49,13 @@ fi
 if ! kind get clusters 2>/dev/null | grep -qx "$CLUSTER"; then
   log "kind cluster"
   export DATA_DIR=$STATE/data
+  # Real KVM: bind the host's device into the node (a mknod'd copy inside the
+  # node is not enough: vCPUs hang). Fake: nothing to mount.
+  if [[ $E2E_EMULATOR == real ]]; then
+    export KVM_MOUNT="      - {hostPath: /dev/kvm, containerPath: /dev/kvm}"
+  else
+    export KVM_MOUNT=""
+  fi
   envsubst <e2e/kind.yaml >"$STATE/kind.yaml"
   kind create cluster --config "$STATE/kind.yaml" --wait 180s
 fi
@@ -58,17 +65,19 @@ KVM_NODE=$CLUSTER-worker2
 HUB_NODE=$CLUSTER-worker
 
 log "/dev/kvm on $KVM_NODE (0660 root:993, like the prod workers)"
-# The kind node is a privileged container with its own /dev, so this node
-# never changes the host's /dev/kvm. Real: the KVM device (10:232). Fake: a
-# stand-in char device (/dev/null's numbers). Both get prod's ownership, so the
-# device plugin and the Pod's supplementalGroups are what grant access.
+# Real: the host's /dev/kvm, bind-mounted into the node by kind.yaml (a
+# mknod'd copy is not enough: vCPUs hang). Fake: a stand-in char device
+# (/dev/null's numbers) with prod's 0660 root:993, so the device plugin and the
+# Pod's supplementalGroups are what grant access.
 if [[ $E2E_EMULATOR == real ]]; then
   test -c /dev/kvm || { echo "E2E_EMULATOR=real needs /dev/kvm on the host" >&2; exit 2; }
-  DEVNUM="10 232"
+  docker exec "$KVM_NODE" test -c /dev/kvm || { echo "kind node lacks the /dev/kvm mount: e2e/down.sh and retry" >&2; exit 2; }
+  # Leave the host's device mode alone: the device plugin hands Pods the
+  # node's /dev/kvm, and a host 0666 (as CI sets it) only widens access.
 else
-  DEVNUM="1 3"
+  docker exec "$KVM_NODE" sh -c "test -e /dev/kvm || mknod /dev/kvm c 1 3"
+  docker exec "$KVM_NODE" sh -c "chown 0:993 /dev/kvm && chmod 0660 /dev/kvm"
 fi
-docker exec "$KVM_NODE" sh -c "test -c /dev/kvm || mknod /dev/kvm c $DEVNUM; chown 0:993 /dev/kvm; chmod 0660 /dev/kvm"
 
 log "load images"
 load() {  # load <image> [node...]: skip nodes that already have this exact image ID
