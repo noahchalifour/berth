@@ -235,6 +235,16 @@ class PodLogTail:
                 names = {p["metadata"]["name"] for p in self.kube.emulator_pods()}
             except Exception:
                 names = set()
+            try:
+                for p in self.kube.emulator_pods():
+                    for cs in p.get("status", {}).get("containerStatuses", []):
+                        term = cs.get("state", {}).get("terminated") or cs.get("lastState", {}).get("terminated")
+                        if term:
+                            self.out.mkdir(parents=True, exist_ok=True)
+                            with open(self.out / "terminations.txt", "a") as f:
+                                f.write(f"{p['metadata']['name']}: {term.get('reason')} exit={term.get('exitCode')}\n")
+            except Exception:
+                pass
             for name in names - set(self.procs):
                 self.out.mkdir(parents=True, exist_ok=True)
                 f = open(self.out / f"{name}.stream.log", "w")  # noqa: SIM115 - closed with the process

@@ -473,3 +473,31 @@ def test_boots_under_containerd_2s_huge_nofile_limit():
     with container("--device", "/dev/kvm", "--ulimit", "nofile=1073741816:1073741816") as c:
         assert _wait_booted(c, timeout=300), c.logs()[-3000:]
         assert "hanging thread" not in c.logs()
+
+
+@pytest.mark.parametrize("ram_mb", [1024, 2048, 4096])
+def test_boots_within_the_pods_memory_limit(ram_mb):
+    """The hub caps each emulator Pod at ram_mb + 2048 MiB (pods.build_pod).
+    The boot must fit, even though the emulator raises guest RAM to the system
+    image's minimum and a large display adds GPU emulation buffers."""
+    from emulator_hub.catalog import DEFAULT_PROFILES  # noqa: F401 - catalog import keeps the contract obvious
+    from emulator_hub.models import Profile
+    from emulator_hub.pods import build_pod
+
+    image = next(k for k, v in SYSTEM_IMAGES.items() if v.package == SYSTEM_IMAGE)
+    ff = next(ff for ff, devs in __import__("emulator_hub.catalog").catalog.DEVICES.items() if DEVICE in devs)
+    pod = build_pod(
+        namespace="x", image=IMAGE, slot=0, lease_id="memlimit", profile=Profile("m", ff, image, DEVICE, ram_mb, 2)
+    )
+    limit = pod["spec"]["containers"][0]["resources"]["limits"]["memory"]
+    mib = int(limit.removesuffix("Mi"))
+    with container("--device", "/dev/kvm", "--memory", f"{mib}m", "--memory-swap", f"{mib}m",
+                   env={"RAM_MB": str(ram_mb)}) as c:  # fmt: skip
+        booted = _wait_booted(c, timeout=300)
+        state = subprocess.run(["docker", "inspect", "-f", "{{.State.OOMKilled}} {{.State.Status}}", c.name],
+                               capture_output=True, text=True).stdout.strip()  # fmt: skip
+        assert booted, f"did not boot under a {limit} limit ({state}):\n{c.logs()[-1500:]}"
+        time.sleep(20)  # and stays up once the launcher settles
+        state = subprocess.run(["docker", "inspect", "-f", "{{.State.OOMKilled}} {{.State.Status}}", c.name],
+                               capture_output=True, text=True).stdout.strip()  # fmt: skip
+        assert state == "false running", state
