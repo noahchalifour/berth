@@ -72,8 +72,15 @@ log "/dev/kvm on $KVM_NODE (0660 root:993, like the prod workers)"
 if [[ $E2E_EMULATOR == real ]]; then
   test -c /dev/kvm || { echo "E2E_EMULATOR=real needs /dev/kvm on the host" >&2; exit 2; }
   docker exec "$KVM_NODE" test -c /dev/kvm || { echo "kind node lacks the /dev/kvm mount: e2e/down.sh and retry" >&2; exit 2; }
-  # Leave the host's device mode alone: the device plugin hands Pods the
-  # node's /dev/kvm, and a host 0666 (as CI sets it) only widens access.
+  # Pods get /dev/kvm through the device plugin and reach it only via the
+  # prod kvm gid (993). The bind mount shares the host's inode, so this
+  # regroups the HOST device: fine on a throwaway CI runner, opt-in elsewhere.
+  if [[ -n ${CI:-} || -n ${E2E_ALLOW_KVM_REGROUP:-} ]]; then
+    docker exec "$KVM_NODE" sh -c "chgrp 993 /dev/kvm && chmod 0660 /dev/kvm"
+  elif [[ "$(docker exec "$KVM_NODE" stat -c %g /dev/kvm)" != 993 ]]; then
+    echo "host /dev/kvm is not group 993; set E2E_ALLOW_KVM_REGROUP=1 to let up.sh chgrp it" >&2
+    exit 2
+  fi
 else
   docker exec "$KVM_NODE" sh -c "test -e /dev/kvm || mknod /dev/kvm c 1 3"
   docker exec "$KVM_NODE" sh -c "chown 0:993 /dev/kvm && chmod 0660 /dev/kvm"
