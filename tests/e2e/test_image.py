@@ -460,3 +460,11 @@ def test_grpc_gohome_leaves_the_app(booted):
     while time.monotonic() < deadline and "dev.emulatorhub.e2e" in focused():
         time.sleep(1)
     assert "dev.emulatorhub.e2e" not in focused()
+
+
+def test_boots_under_containerd_2s_huge_nofile_limit():
+    """containerd >= 2 starts containers with RLIMIT_NOFILE=1073741816, and the
+    emulator's vCPU threads hang at boot under it. The entrypoint clamps it."""
+    with container("--device", "/dev/kvm", "--ulimit", "nofile=1073741816:1073741816") as c:
+        assert _wait_booted(c, timeout=300), c.logs()[-3000:]
+        assert "hanging thread" not in c.logs()

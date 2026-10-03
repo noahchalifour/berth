@@ -5,6 +5,14 @@
 #   RAM_MB, CORES
 set -euo pipefail
 
+# containerd >= 2 (and so kind, k3s, recent kubeadm nodes) starts containers
+# with RLIMIT_NOFILE=1073741816. The emulator's vCPU threads then hang at boot
+# ("detected a hanging thread 'QEMU2 CPU0 thread'") and it aborts; Docker's
+# 1048576 boots fine. Clamp it before anything starts.
+if (($(ulimit -n) > 1048576)); then
+  ulimit -n 1048576
+fi
+
 if [[ ! -w /dev/kvm ]]; then
   echo "FATAL: /dev/kvm missing or not writable. The Pod must request squat.ai/kvm and run on an emulator-hub/kvm=true node." >&2
   exit 3
