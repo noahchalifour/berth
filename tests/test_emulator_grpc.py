@@ -34,3 +34,16 @@ async def test_text_is_sent_in_short_paced_chunks(monkeypatch):
     await screen.text("abc")
     assert [e.text for e in screen._stub.keys] == ["a", "b", "c"]
     assert sleeps == [eg.TEXT_CHUNK_GAP_S] * 2
+
+
+async def test_text_skips_what_has_no_key(monkeypatch):
+    import emulator_hub.emulator_grpc as eg
+
+    async def no_sleep(_):
+        pass
+
+    monkeypatch.setattr(eg.asyncio, "sleep", no_sleep)
+    screen = GrpcScreen.__new__(GrpcScreen)
+    screen._stub = RecordingStub()
+    await screen.text("a你é%b")
+    assert [e.text for e in screen._stub.keys] == ["a", "%", "b"]

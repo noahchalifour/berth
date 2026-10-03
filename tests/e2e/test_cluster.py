@@ -155,7 +155,7 @@ async def test_extreme_profiles_boot_without_oom(env, mcp, kube, adb, holder, ra
 
     from tests.e2e.hub import APK
 
-    allocatable = parse_quantity(kube.json("get", "node", env.kvm_node)["status"]["allocatable"]["cpu"])
+    allocatable = float(parse_quantity(kube.json("get", "node", env.kvm_node)["status"]["allocatable"]["cpu"]))
     # Leave room for the node's own DaemonSets (device plugin, kube-proxy, speaker).
     if cores > allocatable - 0.5:
         pytest.skip(f"the KVM node has {allocatable} allocatable CPUs, the profile requests {cores}")

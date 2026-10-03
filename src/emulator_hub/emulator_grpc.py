@@ -108,6 +108,9 @@ class GrpcScreen:
         # loses characters when events arrive faster than it types them, and
         # under load can leave Shift latched across events. One character per
         # event at fast-human typing pace (~12 chars/s) is the reliable rate.
+        # Only printable ASCII has a key to press (emulator_controller.proto,
+        # KeyboardEvent.text); anything else is skipped rather than sent.
+        text = "".join(c for c in text if 32 <= ord(c) < 127)
         for i in range(0, len(text), TEXT_CHUNK):
             if i:
                 await asyncio.sleep(TEXT_CHUNK_GAP_S)

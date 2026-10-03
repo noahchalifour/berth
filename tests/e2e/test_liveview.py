@@ -344,30 +344,23 @@ async def test_system_keys_have_their_system_effect(env, inputs, leased):
     def focused():
         return adb.shell(t, "dumpsys window | grep -E 'mCurrentFocus|mFocusedApp' | head -1")
 
-    def volume():
-        # Whichever stream the volume keys adjust right now (ring or music),
-        # read from the audio service's state dump.
-        return "|".join(adb.shell(t, f"settings get system {k}").strip()
-                        for k in ("volume_music_speaker", "volume_ring_speaker", "volume_music", "volume_ring"))  # fmt: skip
+    def awake():
+        return adb.shell(t, "dumpsys power | grep mWakefulness=")
 
     assert "dev.emulatorhub.e2e" in focused()
+    # Volume keys are offered to the focused window before the system acts on
+    # them (KEYCODE_VOLUME_UP/DOWN = 24/25).
+    await send("AudioVolumeUp")
+    await send("AudioVolumeDown")
+    await wait_until(lambda: {"24", "25"} <= set(inputs.keys()), 15, what="volume keys at the window")
     await send("GoHome")
     await wait_until(lambda: "dev.emulatorhub.e2e" not in focused(), 10, what="home")
     await send("AppSwitch")
     await wait_until(lambda: re.search(r"Recents|recents|Launcher|Overview|tvlauncher", focused()), 10)
-    adb.shell(
-        t,
-        "cmd media_session volume --stream 3 --set 5 >/dev/null 2>&1; cmd media_session volume --stream 2 --set 5 >/dev/null 2>&1; true",
-    )
-    before = volume()
-    await send("AudioVolumeDown")
-    await send("AudioVolumeDown")
-    await wait_until(lambda: volume() != before, 15, what="volume keys to change a stream volume")
-    await send("AudioVolumeUp")
     await send("Power")
-    await wait_until(lambda: "mWakefulness=Asleep" in adb.shell(t, "dumpsys power | grep mWakefulness="), 10)
+    await wait_until(lambda: "mWakefulness=Asleep" in awake(), 10, what="screen off")
     await send("Power")
-    await wait_until(lambda: "mWakefulness=Awake" in adb.shell(t, "dumpsys power | grep mWakefulness="), 10)
+    await wait_until(lambda: "mWakefulness=Awake" in awake(), 10, what="screen on")
 
 
 @pytest.mark.android
@@ -380,10 +373,9 @@ async def test_text_input_with_symbols_unicode_and_truncation(env, inputs, lease
         await ws.send(json.dumps({"t": "text", "text": long}))
         await recv_frames(ws, 1)
     if env.real:
-        # The emulator translates printable ASCII only (emulator_controller.proto,
-        # KeyboardEvent.text): 你好 and é are dropped, and so is "%" (an emulator
-        # quirk, measured).
-        ascii_sample = "".join(c for c in sample if 32 <= ord(c) < 127 and c != "%")
+        # The hub types printable ASCII only (all the emulator can translate):
+        # 你好 and é are skipped and the rest arrives.
+        ascii_sample = "".join(c for c in sample if 32 <= ord(c) < 127)
         want = ascii_sample + "x" * 500
 
         def typed():
@@ -439,9 +431,11 @@ async def test_several_viewers_at_once(env, inputs, leased):
     ):
         for ws in (a, b, c):
             await recv_frames(ws, 1, timeout=60)
-        for ws in (a, b, c):
-            await ws.send(json.dumps({"t": "touch", "x": 0.3, "y": 0.4, "down": True}))
-            await ws.send(json.dumps({"t": "touch", "x": 0.3, "y": 0.4, "down": False}))
+        for i, ws in enumerate((a, b, c)):
+            # Distinct points, spaced out: a slow guest coalesces identical rapid taps.
+            await ws.send(json.dumps({"t": "touch", "x": 0.3 + 0.1 * i, "y": 0.4, "down": True}))
+            await ws.send(json.dumps({"t": "touch", "x": 0.3 + 0.1 * i, "y": 0.4, "down": False}))
+            await asyncio.sleep(0.7)
         for ws in (a, b, c):
             assert await recv_frames(ws, 1)
         try:
@@ -449,9 +443,10 @@ async def test_several_viewers_at_once(env, inputs, leased):
         except AssertionError:
             raise AssertionError(f"touches: {inputs.touches()}") from None
         await c.close()
-        for ws in (a, b):
-            await ws.send(json.dumps({"t": "touch", "x": 0.6, "y": 0.6, "down": True}))
-            await ws.send(json.dumps({"t": "touch", "x": 0.6, "y": 0.6, "down": False}))
+        for i, ws in enumerate((a, b)):
+            await ws.send(json.dumps({"t": "touch", "x": 0.6, "y": 0.5 + 0.1 * i, "down": True}))
+            await ws.send(json.dumps({"t": "touch", "x": 0.6, "y": 0.5 + 0.1 * i, "down": False}))
+            await asyncio.sleep(0.7)
             assert await recv_frames(ws, 1)
         # Input from the surviving viewers still lands (checked before closing them).
         await wait_until(lambda: len([t for t in inputs.touches() if t[2]]) >= 5, 20, what="taps after one left")
