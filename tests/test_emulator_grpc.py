@@ -31,6 +31,6 @@ async def test_text_is_sent_in_short_paced_chunks(monkeypatch):
     monkeypatch.setattr(eg.asyncio, "sleep", fake_sleep)
     screen = GrpcScreen.__new__(GrpcScreen)
     screen._stub = RecordingStub()
-    await screen.text("abcdefghijkl")
-    assert [e.text for e in screen._stub.keys] == ["abcde", "fghij", "kl"]
+    await screen.text("abc")
+    assert [e.text for e in screen._stub.keys] == ["a", "b", "c"]
     assert sleeps == [eg.TEXT_CHUNK_GAP_S] * 2

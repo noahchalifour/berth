@@ -15,8 +15,8 @@ from emulator_hub._grpc import emulator_controller_pb2 as pb
 from emulator_hub._grpc import emulator_controller_pb2_grpc as rpc
 from emulator_hub.pods import GRPC_PORT
 
-TEXT_CHUNK = 5
-TEXT_CHUNK_GAP_S = 0.2
+TEXT_CHUNK = 1
+TEXT_CHUNK_GAP_S = 0.06
 MAX_WIDTH = 480
 JPEG_QUALITY = 70
 KEYS = frozenset(
@@ -104,9 +104,10 @@ class GrpcScreen:
         await self._stub.sendKey(pb.KeyboardEvent(key=key, eventType=pb.KeyboardEvent.keypress))
 
     async def text(self, text: str) -> None:
-        # The emulator drops a whole text event longer than ~15 characters and
-        # loses characters when events arrive faster than it types them, so
-        # send short chunks at typing pace (~25 chars/s, measured lossless).
+        # The emulator drops a whole text event longer than ~15 characters,
+        # loses characters when events arrive faster than it types them, and
+        # under load can leave Shift latched across events. One character per
+        # event at human typing pace (~16 chars/s) is the reliable rate.
         for i in range(0, len(text), TEXT_CHUNK):
             if i:
                 await asyncio.sleep(TEXT_CHUNK_GAP_S)
