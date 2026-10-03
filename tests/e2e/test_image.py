@@ -477,15 +477,16 @@ def test_boots_under_containerd_2s_huge_nofile_limit():
 
 @pytest.mark.parametrize("ram_mb", [1024, 2048, 4096])
 def test_boots_within_the_pods_memory_limit(ram_mb):
-    """The hub caps each emulator Pod at ram_mb + 2048 MiB (pods.build_pod).
-    The boot must fit, even though the emulator raises guest RAM to the system
+    """The boot fits inside the memory limit the hub gives the Pod
+    (pods.memory_mb), even though the emulator raises guest RAM to the system
     image's minimum and a large display adds GPU emulation buffers."""
-    from emulator_hub.catalog import DEFAULT_PROFILES  # noqa: F401 - catalog import keeps the contract obvious
     from emulator_hub.models import Profile
     from emulator_hub.pods import build_pod
 
     image = next(k for k, v in SYSTEM_IMAGES.items() if v.package == SYSTEM_IMAGE)
-    ff = next(ff for ff, devs in __import__("emulator_hub.catalog").catalog.DEVICES.items() if DEVICE in devs)
+    from emulator_hub.catalog import DEVICES
+
+    ff = next(ff for ff, devs in DEVICES.items() if DEVICE in devs)
     pod = build_pod(
         namespace="x", image=IMAGE, slot=0, lease_id="memlimit", profile=Profile("m", ff, image, DEVICE, ram_mb, 2)
     )

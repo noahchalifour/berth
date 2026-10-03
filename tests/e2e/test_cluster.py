@@ -131,14 +131,18 @@ async def _hb_error(mcp, lease_id):
 async def test_resources_requests_and_limits(env, mcp, kube, profile, holder, e2e_profiles):
     grant = await acquire_leased(mcp, env, profile, holder)
     pod = kube.pod(pod_name(grant["slot"], grant["lease_id"]))
-    ram, cores = e2e_profiles[profile]["ram_mb"], e2e_profiles[profile]["cores"]
-    res = pod["spec"]["containers"][0]["resources"]
-    assert res["requests"]["cpu"] == str(cores)
     from lightkube.utils.quantity import parse_quantity
 
+    from emulator_hub.models import Profile
+    from emulator_hub.pods import memory_mb
+
+    cores = e2e_profiles[profile]["cores"]
+    request_mb, limit_mb = memory_mb(Profile(profile, **e2e_profiles[profile]))
+    res = pod["spec"]["containers"][0]["resources"]
+    assert res["requests"]["cpu"] == str(cores)
     # The API server normalises quantities (2048Mi reads back as 2Gi).
-    assert parse_quantity(res["requests"]["memory"]) == (ram + 1024) * 2**20
-    assert parse_quantity(res["limits"]["memory"]) == (ram + 2048) * 2**20
+    assert parse_quantity(res["requests"]["memory"]) == request_mb * 2**20
+    assert parse_quantity(res["limits"]["memory"]) == limit_mb * 2**20
     assert "cpu" not in res["limits"]
 
 
