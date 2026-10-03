@@ -86,8 +86,9 @@ class Controller(rpc.EmulatorControllerServicer):
                 pb.Entry(key="fake.device", value=os.environ.get("DEVICE", "")),
             ]
         )
-        return pb.EmulatorStatus(version="fake", uptime=int((time.monotonic() - STARTED) * 1000), booted=booted,
-                                 hardwareConfig=cfg)
+        return pb.EmulatorStatus(
+            version="fake", uptime=int((time.monotonic() - STARTED) * 1000), booted=booted, hardwareConfig=cfg
+        )
 
     async def getDisplayConfigurations(self, request, context):
         return pb.DisplayConfigurations(displays=[pb.DisplayConfiguration(width=WIDTH, height=HEIGHT, dpi=420)])
@@ -101,7 +102,7 @@ class Controller(rpc.EmulatorControllerServicer):
             seen = -1
             while True:
                 async with SCREEN.changed:
-                    await SCREEN.changed.wait_for(lambda: SCREEN.version != seen)
+                    await SCREEN.changed.wait_for(lambda seen=seen: SCREEN.version != seen)
                     seen = SCREEN.version
                 yield SCREEN.render(request)
         finally:

@@ -3,7 +3,6 @@ aspect removed at a time, to find what stops it booting in-cluster.
     uv run python e2e/bisect-pod.py <context> <image>
 Prints one line per variant: booted in Ns / hung / exited."""
 
-import copy
 import json
 import subprocess
 import sys
@@ -22,7 +21,8 @@ def kubectl(*args, input=None, check=True):
 
 
 def variant(name, mutate):
-    pod = build_pod(namespace="emulator-hub", image=image, slot=9, lease_id=f"diag{name}".ljust(8, "x"), profile=profile)
+    lease = f"diag{name}".ljust(8, "x")
+    pod = build_pod(namespace="emulator-hub", image=image, slot=9, lease_id=lease, profile=profile)
     pod["metadata"]["name"] = f"diag-{name}"
     pod["metadata"]["labels"]["app.kubernetes.io/name"] = "diag"
     mutate(pod)
