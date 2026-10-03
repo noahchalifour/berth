@@ -4,6 +4,7 @@ The bridge runs without auth inside the emulator Pod; the emulator Pod's
 NetworkPolicy admits :8554 only from the hub Pod, which is the protection.
 """
 
+import asyncio
 import io
 
 import grpc
@@ -14,6 +15,8 @@ from emulator_hub._grpc import emulator_controller_pb2 as pb
 from emulator_hub._grpc import emulator_controller_pb2_grpc as rpc
 from emulator_hub.pods import GRPC_PORT
 
+TEXT_CHUNK = 5
+TEXT_CHUNK_GAP_S = 0.2
 MAX_WIDTH = 480
 JPEG_QUALITY = 70
 KEYS = frozenset(
@@ -101,7 +104,13 @@ class GrpcScreen:
         await self._stub.sendKey(pb.KeyboardEvent(key=key, eventType=pb.KeyboardEvent.keypress))
 
     async def text(self, text: str) -> None:
-        await self._stub.sendKey(pb.KeyboardEvent(text=text))
+        # The emulator drops a whole text event longer than ~15 characters and
+        # loses characters when events arrive faster than it types them, so
+        # send short chunks at typing pace (~25 chars/s, measured lossless).
+        for i in range(0, len(text), TEXT_CHUNK):
+            if i:
+                await asyncio.sleep(TEXT_CHUNK_GAP_S)
+            await self._stub.sendKey(pb.KeyboardEvent(text=text[i : i + TEXT_CHUNK]))
 
     async def close(self) -> None:
         await self._channel.close()

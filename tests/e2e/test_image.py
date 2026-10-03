@@ -272,10 +272,13 @@ def test_text_reaches_a_focused_field(booted):
     adb(env, "-s", target, "shell", "am start -W -n dev.emulatorhub.e2e/.ProbeActivity")
     time.sleep(3)
 
+    long = "The quick brown fox jumps over the lazy dog 0123456789 " * 3
+
     async def type_():
         s = screen(booted)
         try:
             await s.text("hello e2e")
+            await s.text(" " + long)  # longer than one emulator text event
         finally:
             await s.close()
 
@@ -284,10 +287,13 @@ def test_text_reaches_a_focused_field(booted):
     log = ""
     while time.monotonic() < deadline:
         log = adb(env, "-s", target, "shell", "logcat -d -s E2E:I")
-        if "text hello e2e" in log:
+        if "text hello e2e " + long.rstrip() in log.replace("\n", ""):
             break
         time.sleep(1)
     assert "text hello e2e" in log, log[-2000:]
+    raw = adb(env, "-s", target, "shell", "logcat -d -v raw -s E2E:I")
+    last = [m for m in raw.split("\ntext ") if m][-1].split("\nkey")[0].replace("\n", "")
+    assert last.rstrip() == ("hello e2e " + long).rstrip(), last[-120:]
 
     async def press():
         s = screen(booted)
