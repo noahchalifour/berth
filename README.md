@@ -1,87 +1,80 @@
+<div align="center">
+
 # Berth
 
-<img src="docs/branding/berth/berth-logo.png" alt="Berth: modular geometric B logo" width="240">
+<img src="docs/branding/berth/berth-logo.png" alt="Berth: modular geometric B logo" width="160">
 
-A lease-based pool of self-hosted Android emulators. Agents (and humans) check
-out a slot through an MCP server or a small HTTP API, get exclusive use of a
-running emulator for a bounded lease, and release it (or let it expire) back
-to the pool; a live-view web UI lets a human watch or take over any active
-session.
+**A lease-based pool of self-hosted Android emulators for agents and humans.**
 
-Berth is the product name. The Python package, CLI, container images, and
-Kubernetes resources retain their existing `emulator-hub` identifiers for
-compatibility.
+Check out a phone, tablet, or TV over MCP or HTTP, use it exclusively for a bounded lease, then release it back to the pool.
 
-## Develop
+</div>
+
+## Demo
+
+<p align="center">
+  <img src=".github/assets/devices.png" alt="Berth devices page showing phone, tablet, and TV slots with live thumbnails" width="860">
+</p>
+
+## Install
+
+Berth runs on Kubernetes: the hub server starts one emulator Pod per lease.
 
 ```bash
-uv sync
-uv run pytest
-./scripts/gen-grpc.sh
+docker pull ghcr.io/noahchalifour/emulator-hub:v0.1.1
 ```
 
-`uv sync` installs the runtime and dev dependency groups into `.venv/`.
-`uv run pytest` runs the unit and integration suite. `./scripts/gen-grpc.sh` regenerates the
-gRPC/protobuf bindings in `src/emulator_hub/_grpc` from `proto/`.
+Deployment manifests live in [`home-lab-infrastructure`](https://github.com/noahchalifour/home-lab-infrastructure/tree/main/kubernetes/apps/emulator-hub). Set `HUB_API_TOKEN`, `HUB_EMULATOR_IMAGE`, and `HUB_SLOT_IPS` on the hub.
 
-## End-to-end tests
+## Quickstart
 
-`tests/e2e` runs the whole service in a kind cluster: real Pods, MetalLB slot
-IPs, ingress-nginx with authentik-style forward auth, NetworkPolicies, and (on
-Linux with KVM) real Android emulators.
+Point an MCP client at the machine port (`8081`) and let the agent lease a device:
 
 ```bash
-./e2e/up.sh && ./e2e/run.sh
+claude mcp add --transport http berth http://localhost:8081/mcp \
+  --header "Authorization: Bearer $HUB_API_TOKEN"
 ```
 
-See [`e2e/README.md`](e2e/README.md). CI runs it nightly, on changes to the
-suite, and before every release (`.github/workflows/e2e.yml`).
+Ask the agent to call `acquire` with a profile such as `phone`. The grant returns the lease id, the `adb` address to `adb connect` to, and `expires_at`. Call `release` when you finish, or let the lease expire.
 
-## Images
+## Leases over MCP or HTTP
 
-Two images are published to GHCR, tagged only on `v*` release tags (no
-`latest`, no per-commit tags):
+- **MCP tools:** `list_profiles`, `acquire`, `heartbeat`, `release`, and `status` over streamable HTTP at `/mcp`.
+- **Bounded leases:** Each lease has a TTL, extends with `heartbeat`, and hits a hard stop after four hours.
+- **REST API:** Manage leases and profiles at `/api/leases` and `/api/profiles`.
+- **Metrics:** Scrape Prometheus metrics at `/metrics` and probe `/healthz`.
 
-- `ghcr.io/noahchalifour/emulator-hub` — the hub server (MCP + HTTP API + live
-  view), built from the repo root `Dockerfile`.
-- `ghcr.io/noahchalifour/emulator-hub-emulator` — the Android emulator image
-  each slot runs, built from `emulator/Dockerfile`.
+## Live view and takeover
 
-## Deploy
+Watch any active session in the browser and take over with touch, keyboard, and the Back, Home, Recents, volume, and power buttons.
 
-Deployment manifests live outside this repo, in
-[`kubernetes/apps/emulator-hub/`](https://github.com/noahchalifour/home-lab-infrastructure/tree/main/kubernetes/apps/emulator-hub)
-in `noahchalifour/home-lab-infrastructure`.
+<p align="center">
+  <img src=".github/assets/live-view.png" alt="Live view dialog streaming a phone screen with navigation buttons" width="860">
+</p>
 
-### adb on Android TV
+## Profiles and history
 
-`android-tv` system images are `user` builds: adbd trusts only the key that
-the emulator pushes into the guest at boot, so a client key the device has
-never seen stays `unauthorized`. To make TV usable, give the hub one key pair
-for every emulator:
+- **Form factors:** Phone, tablet, and Android TV profiles ship by default.
+- **Editable profiles:** Choose the system image, device, RAM (1024 to 4096 MB), and cores (1 to 4) per profile.
+- **Lease history:** Review the last 100 leases with holder, duration, and how each ended.
+
+<p align="center">
+  <img src=".github/assets/profiles.png" alt="Profiles page with a table of profiles and an add or update form" width="420">
+  <img src=".github/assets/history.png" alt="History page listing recent leases with holder and duration" width="420">
+</p>
+
+## Android TV adb key
+
+`android-tv` images only trust the key the emulator pushes at boot. Give the hub one key pair for every emulator:
 
 ```bash
-adb keygen adbkey   # writes adbkey and adbkey.pub
+adb keygen adbkey
 kubectl -n emulator-hub create secret generic emulator-hub-adb-key \
   --from-file=adbkey --from-file=adbkey.pub
 ```
 
-Mount that Secret into the hub and set `HUB_ADB_KEY_DIR` to the mount path.
-Every emulator then trusts that key. Bearer-token holders can download it from
-`GET /adbkey` on the machine port, and each lease grant carries
-`adb_key_url: "/adbkey"`. The MCP instructions tell agents to install it as
-`~/.android/adbkey` before `adb connect`.
+Mount the Secret into the hub and set `HUB_ADB_KEY_DIR` to the mount path. Agents fetch the key from `GET /adbkey` on the machine port. Anyone with the API token can then reach any leased device over adb.
 
-The hub passes the key to each emulator Pod as an env var, so anyone who can
-read Pods in the namespace can read it too. The trade-off: anyone with the API
-token can reach any leased device over adb.
-That is the same trust boundary as today, where locking is cooperative. Without
-`HUB_ADB_KEY_DIR` nothing changes: phone and tablet images still accept any
-client key, and TV does not.
+## License
 
-## Fonts
-
-The web UI vendors [Inter](https://github.com/rsms/inter) and
-[JetBrains Mono](https://github.com/JetBrains/JetBrainsMono) under
-`src/emulator_hub/ui/fonts/`, both licensed under the SIL Open Font License
-1.1.
+[MIT](LICENSE). See [CONTRIBUTING.md](CONTRIBUTING.md) to develop or run the tests.
