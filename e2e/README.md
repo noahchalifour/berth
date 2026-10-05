@@ -59,23 +59,10 @@ settled hub: every slot free, queue empty, no active lease, no emulator Pod.
 
 ## Expected failures
 
-Defects the suite found are committed as `xfail(strict=True)` with the reason.
-A fix that makes one pass turns the run red until the marker is removed:
-
-- `test_ui.py::test_ui_boot_of_a_slow_cold_emulator_survives_the_ingress`: the UI
-  boot blocks past ingress-nginx's 60s read timeout.
-- `test_cluster.py::test_shrinking_slots_under_an_active_lease`: `IndexError`
-  in `endpoints()` strands the lease.
-- `test_cluster.py::test_every_end_reason_is_counted`: only the reaper
-  increments `emulator_hub_leases_ended_total`.
-- `test_liveview.py::test_malformed_input_does_not_kill_the_session`: bad
-  client JSON ends the viewer's session.
-- `test_queue.py::test_client_disconnect_while_queued_removes_the_waiter` and
-  `test_rest_client_disconnect_during_foreground_boot_cancels_the_lease`: a
-  caller that disconnects is never noticed. Its queued slot or boot carries on
-  for nobody.
-- `test_image.py` adb-key tests on `android-tv`: a never-seen client key is
-  `unauthorized`.
+Defects the suite finds are committed as `xfail(strict=True)` with the reason,
+so a fix that makes one pass turns the run red until the marker is removed.
+There are none right now. The first batch was fixed in the PR after the one
+that introduced the suite.
 
 ## The emulator image contract
 

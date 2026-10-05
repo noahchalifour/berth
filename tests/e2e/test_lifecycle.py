@@ -79,6 +79,8 @@ async def test_every_catalog_device_boots_and_matches_its_profile(mcp, env, kube
     labels = pod["metadata"]["labels"]
     assert labels["emulator-hub/slot"] == str(slot) and labels["emulator-hub/lease"] == grant["lease_id"]
     envs = {e["name"]: e["value"] for e in pod["spec"]["containers"][0]["env"]}
+    # The cluster runs with HUB_ADB_KEY_DIR, so the shared key rides along.
+    assert envs.pop("ADB_KEY").startswith("-----BEGIN") and envs.pop("ADB_KEY_PUB")
     assert envs == {
         "SYSTEM_IMAGE": SYSTEM_IMAGES[body["system_image"]].package,
         "DEVICE": body["device"],
