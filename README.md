@@ -1,8 +1,9 @@
 <div align="center">
 
-# Berth
-
 <img src="docs/branding/berth/berth-logo.png" alt="Berth: modular geometric B logo" width="160">
+
+<br />
+<br />
 
 **A lease-based pool of self-hosted Android emulators for agents and humans.**
 
