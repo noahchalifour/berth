@@ -1,0 +1,22 @@
+[
+  {
+    "created_at": "2026-10-05T20:08:25.471014Z",
+    "display_name": "Recraft V4.1",
+    "id": "92205d58-9707-4ba9-95ea-bbd3c5983460",
+    "job_type": "recraft_v4_1",
+    "min_result_url": "https://d8j0ntlcm91z4.cloudfront.net/user_3HTBh2IWiT7s1sOevenju3ejpEc/hf_20261005_200825_92205d58-9707-4ba9-95ea-bbd3c5983460_min.webp",
+    "params": {
+      "aspect_ratio": "1:1",
+      "background_color": "#FFFFFF",
+      "batch_size": 1,
+      "colors": [],
+      "height": 1024,
+      "model_type": "vector",
+      "prompt": "Create ONE original logo concept for Berth, a self-hosted Android emulator fleet for AI agents and humans. The concept is a safe assigned dock for a borrowed device. Produce a professional isolated brand logo, with one symbol above one wordmark except for the typographic option. The only text must be Berth (or berth when specified). Center on a pure white square canvas with generous margins. Keep the full lockup within the central 70 percent. Flat vector artwork, crisp paths, recognizable small silhouette. No mockups, photographs, shadows, textures, explanatory labels, taglines, watermarks, multiple alternatives, or famous-brand imitation. Bauhaus-inspired modular identity. Four or five rectangular device tiles create a distinctive capital B silhouette with clear separation representing leased slots in a fleet. Strong geometric construction and playful orderly rhythm. Flat cobalt #2855D9, warm coral #EE735C, and charcoal #202839. Geometric sans-serif Berth wordmark.",
+      "resolution": "2k",
+      "width": 1024
+    },
+    "result_url": "https://d8j0ntlcm91z4.cloudfront.net/user_3HTBh2IWiT7s1sOevenju3ejpEc/hf_20261005_200825_92205d58-9707-4ba9-95ea-bbd3c5983460.svg",
+    "status": "completed"
+  }
+]

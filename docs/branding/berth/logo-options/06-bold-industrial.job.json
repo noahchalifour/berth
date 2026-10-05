@@ -1,0 +1,22 @@
+[
+  {
+    "created_at": "2026-10-05T20:08:28.090624Z",
+    "display_name": "Recraft V4.1",
+    "id": "2ad98eb1-ba31-457a-a28d-f82cd9300e81",
+    "job_type": "recraft_v4_1",
+    "min_result_url": "https://d8j0ntlcm91z4.cloudfront.net/user_3HTBh2IWiT7s1sOevenju3ejpEc/hf_20261005_200828_2ad98eb1-ba31-457a-a28d-f82cd9300e81_min.webp",
+    "params": {
+      "aspect_ratio": "1:1",
+      "background_color": "#FFFFFF",
+      "batch_size": 1,
+      "colors": [],
+      "height": 1024,
+      "model_type": "vector",
+      "prompt": "Create ONE original logo concept for Berth, a self-hosted Android emulator fleet for AI agents and humans. The concept is a safe assigned dock for a borrowed device. Produce a professional isolated brand logo, with one symbol above one wordmark except for the typographic option. The only text must be Berth (or berth when specified). Center on a pure white square canvas with generous margins. Keep the full lockup within the central 70 percent. Flat vector artwork, crisp paths, recognizable small silhouette. No mockups, photographs, shadows, textures, explanatory labels, taglines, watermarks, multiple alternatives, or famous-brand imitation. Bold industrial infrastructure identity. A heavy custom capital B mark built like a steel docking clamp, with functional stencil cuts and one inset rectangular device slot. Compact robust silhouette, sophisticated utility, no distress or texture. Near-black #192320 with safety orange #F57C32. Wide bold engineered Berth wordmark.",
+      "resolution": "2k",
+      "width": 1024
+    },
+    "result_url": "https://d8j0ntlcm91z4.cloudfront.net/user_3HTBh2IWiT7s1sOevenju3ejpEc/hf_20261005_200828_2ad98eb1-ba31-457a-a28d-f82cd9300e81.svg",
+    "status": "completed"
+  }
+]

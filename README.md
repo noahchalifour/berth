@@ -1,10 +1,16 @@
-# emulator-hub
+# Berth
+
+<img src="docs/branding/berth/berth-logo.png" alt="Berth: modular geometric B logo" width="240">
 
 A lease-based pool of self-hosted Android emulators. Agents (and humans) check
 out a slot through an MCP server or a small HTTP API, get exclusive use of a
 running emulator for a bounded lease, and release it (or let it expire) back
 to the pool; a live-view web UI lets a human watch or take over any active
 session.
+
+Berth is the product name. The Python package, CLI, container images, and
+Kubernetes resources retain their existing `emulator-hub` identifiers for
+compatibility.
 
 ## Develop
 

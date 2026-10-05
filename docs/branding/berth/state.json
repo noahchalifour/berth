@@ -1,0 +1,15 @@
+{
+  "brandbookElements": [],
+  "essentialKitApproved": false,
+  "logo": {
+    "approvalSummary": "User selected option #4, Modular geometric, and approved applying its symbol to the app header and favicon and its full lockup to the README. Preserve exact colors and geometry; leave UI tokens unchanged.",
+    "asset": {
+      "path": "/Users/nchalifo/GitHub/emulator-hub/docs/branding/berth/logo-options/04-modular-geometric-2.svg"
+    },
+    "geometryFingerprint": "9fe6c6bd06bd41d7bc83f88eedf0bdba987d4a87bd6e864c8b936717c87434b1",
+    "name": "Berth modular geometric",
+    "origin": "user_supplied",
+    "revision": 1
+  },
+  "version": 1
+}
