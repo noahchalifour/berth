@@ -65,7 +65,7 @@ class GrpcScreen:
 
     async def _device_size(self) -> tuple[int, int]:
         if self._size is None:
-            cfg = await self._stub.getDisplayConfigurations(Empty())
+            cfg = await self._stub.getDisplayConfigurations(Empty(), timeout=5)
             primary = next(d for d in cfg.displays if d.display == 0)
             self._size = (primary.width, primary.height)
         return self._size

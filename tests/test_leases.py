@@ -184,3 +184,72 @@ async def test_release_during_background_boot(engine, probe, pods):
         await asyncio.sleep(0)
     assert released.end_reason == "released"
     assert pods.pods == {} and engine.store.free_slots() == [0, 1, 2]
+
+
+async def test_reconcile_ends_leases_on_slots_that_were_configured_away(store, pods, probe, config, clock, tmp_path):
+    import dataclasses
+
+    from emulator_hub.leases import LeaseEngine
+    from emulator_hub.store import Store
+
+    engine = LeaseEngine(store, pods, probe, config, clock=clock)
+    grants = [await engine.acquire("phone", f"h{i}", 30, 1) for i in range(3)]
+    last = next(g for g in grants if g.lease.slot == 2)
+    # Restart with two slot IPs.
+    smaller = dataclasses.replace(config, slot_ips=config.slot_ips[:2])
+    store2 = Store(tmp_path / "hub.db", slot_count=2)
+    engine2 = LeaseEngine(store2, pods, probe, smaller, clock=clock)
+    await engine2.reconcile()
+    lease = store2.get_lease(last.lease.id)
+    assert lease.state == "ended" and lease.end_reason == "lost"
+    assert not any(n.startswith("emu-slot-2-") for n in pods.pods)
+    assert len(store2.list_slots()) == 2
+    for g in grants:
+        if g.lease.slot < 2:
+            assert engine2.heartbeat(g.lease.id).lease.state == "leased"
+
+
+async def test_every_end_reason_is_counted(engine, pods, probe):
+    from emulator_hub import metrics
+
+    def count(reason):
+        return metrics.LEASES_ENDED.labels(reason)._value.get()
+
+    before = {r: count(r) for r in ("released", "forced", "boot_failed")}
+    g = await engine.acquire("phone", "a", 30, 1)
+    await engine.release(g.lease.id)
+    g = await engine.acquire("phone", "a", 30, 1)
+    await engine.release(g.lease.id, reason="forced")
+    pods.create_error = RuntimeError("quota")
+    with pytest.raises(BootFailed):
+        await engine.acquire("phone", "a", 30, 1)
+    assert count("released") == before["released"] + 1
+    assert count("forced") == before["forced"] + 1
+    assert count("boot_failed") == before["boot_failed"] + 1
+
+
+async def test_cancelled_boot_cleans_up_even_under_repeated_cancellation(store, probe, config, clock):
+    """anyio (Starlette's middleware) cancels at every await, not once: the Pod
+    delete in a cancelled boot's cleanup must still happen."""
+    from emulator_hub.leases import LeaseEngine
+    from tests.fakes import FakePods
+
+    class SlowDelete(FakePods):
+        async def delete(self, name):
+            await asyncio.sleep(0.1)
+            await super().delete(name)
+
+    pods = SlowDelete()
+    probe.after = 10**9
+    engine = LeaseEngine(store, pods, probe, config, clock=clock)
+    task = asyncio.create_task(engine.acquire("phone", "a", 30, 1, boot_wait_seconds=None))
+    await asyncio.sleep(0.05)
+    for _ in range(5):  # keep cancelling, like a level-triggered cancel scope
+        task.cancel()
+        await asyncio.sleep(0.01)
+    await asyncio.gather(task, return_exceptions=True)
+    await asyncio.sleep(0.3)
+    assert pods.pods == {}
+    [lease] = store.recent_leases()
+    assert lease.end_reason == "cancelled"
+    assert store.free_slots() == [0, 1, 2]

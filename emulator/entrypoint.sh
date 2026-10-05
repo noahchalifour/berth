@@ -51,7 +51,13 @@ fi
 # might generate on its own -- so it should not affect the already-working
 # pixel_8/android-35 path.
 mkdir -p "$HOME/.android" "$ANDROID_EMULATOR_HOME"
-if [[ ! -f "$HOME/.android/adbkey" ]]; then
+# The hub passes one adb key pair to every emulator (ADB_KEY, ADB_KEY_PUB) and
+# hands the private key to agents, so a client can be authorized even on
+# `user` builds (android-tv), which only trust the key pushed at boot.
+if [[ -n "${ADB_KEY:-}" && -n "${ADB_KEY_PUB:-}" ]]; then
+  (umask 077 && printf '%s\n' "$ADB_KEY" >"$HOME/.android/adbkey")
+  printf '%s\n' "$ADB_KEY_PUB" >"$HOME/.android/adbkey.pub"
+elif [[ ! -f "$HOME/.android/adbkey" ]]; then
   adb keygen "$HOME/.android/adbkey"
 fi
 cp -f "$HOME/.android/adbkey" "$ANDROID_EMULATOR_HOME/adbkey"

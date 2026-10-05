@@ -3,15 +3,19 @@ against real Pods (and, with E2E_EMULATOR=real, real Android devices)."""
 
 import asyncio
 import subprocess
+import tempfile
 import time
+from pathlib import Path
 
 import pytest
 
 from emulator_hub.catalog import DEVICES, SYSTEM_IMAGES
 from tests.e2e.hub import (
     APK,
+    Adb,
     McpError,
     acquire_leased,
+    hub_adb_key,
     pod_name,
     tcp_banner,
     ui_client,
@@ -75,6 +79,8 @@ async def test_every_catalog_device_boots_and_matches_its_profile(mcp, env, kube
     labels = pod["metadata"]["labels"]
     assert labels["emulator-hub/slot"] == str(slot) and labels["emulator-hub/lease"] == grant["lease_id"]
     envs = {e["name"]: e["value"] for e in pod["spec"]["containers"][0]["env"]}
+    # The cluster runs with HUB_ADB_KEY_DIR, so the shared key rides along.
+    assert envs.pop("ADB_KEY").startswith("-----BEGIN") and envs.pop("ADB_KEY_PUB")
     assert envs == {
         "SYSTEM_IMAGE": SYSTEM_IMAGES[body["system_image"]].package,
         "DEVICE": body["device"],
@@ -90,14 +96,11 @@ async def test_every_catalog_device_boots_and_matches_its_profile(mcp, env, kube
 
     target = grant["adb"]
     if body["form_factor"] == "tv":
-        try:
-            adb.connect(target, timeout=60)
-        except AssertionError as exc:
-            if "unauthorized" in str(exc):
-                pytest.xfail("android-tv rejects a never-seen adb key as unauthorized (ENG-342)")
-            raise
-    else:
-        adb.connect(target)
+        # android-tv (a `user` build) trusts only the key pushed at boot: use
+        # the hub's shared key, as the MCP instructions say.
+        adb.stop()
+        adb = Adb(Path(tempfile.mkdtemp(prefix="adb", dir="/tmp")), private_key=hub_adb_key(env, grant))
+    adb.connect(target)
     adb.wait_boot_completed(target)
     api = SYSTEM_IMAGES[body["system_image"]].api_level
     assert adb.shell(target, "getprop ro.build.version.sdk").strip() == str(api)

@@ -40,6 +40,18 @@
           "title": "Adb",
           "type": "string"
         },
+        "adb_key_url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Adb Key Url"
+        },
         "expires_at": {
           "anyOf": [
             {
@@ -105,6 +117,18 @@
         "adb": {
           "title": "Adb",
           "type": "string"
+        },
+        "adb_key_url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Adb Key Url"
         },
         "expires_at": {
           "anyOf": [

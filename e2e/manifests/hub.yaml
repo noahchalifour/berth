@@ -90,6 +90,7 @@ spec:
             - {name: HUB_SLOT_IPS, value: "${SLOT_IPS}"}
             - {name: HUB_REAP_INTERVAL_S, value: "2"}
             - {name: HUB_BOOT_TIMEOUT_S, value: "${BOOT_TIMEOUT_S}"}
+            - {name: HUB_ADB_KEY_DIR, value: /etc/emulator-hub/adb}
             - name: HUB_API_TOKEN
               valueFrom: {secretKeyRef: {name: emulator-hub, key: api-token}}
           ports:
@@ -106,9 +107,13 @@ spec:
             capabilities: {drop: [ALL]}
           volumeMounts:
             - {name: data, mountPath: /data}
+            - {name: adb-key, mountPath: /etc/emulator-hub/adb, readOnly: true}
       volumes:
         - name: data
           persistentVolumeClaim: {claimName: emulator-hub-data}
+        # The shared adb key pair every emulator trusts (HUB_ADB_KEY_DIR).
+        - name: adb-key
+          secret: {secretName: emulator-hub-adb-key, defaultMode: 0440}
 ---
 apiVersion: v1
 kind: Service

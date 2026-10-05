@@ -21,7 +21,14 @@ CLUSTER=emulator-hub-e2e
 if [[ -z "${E2E_EMULATOR:-}" ]]; then
   if [[ "$(uname -s)" == Linux && -e /dev/kvm ]]; then E2E_EMULATOR=real; else E2E_EMULATOR=fake; fi
 fi
-SLOTS=${E2E_SLOTS:-$([[ $E2E_EMULATOR == real ]] && echo 2 || echo 3)}
+# Emulator Pods request their real boot footprint (pods.memory_mb: ~3.5 GiB
+# for the e2e profile), so the slot count must fit the host. Default: 3 fake
+# slots (2 real) where memory allows, fewer on a small Docker VM.
+MEM_GIB=$(($(docker info --format '{{.MemTotal}}') / 1024 / 1024 / 1024))
+FIT=$(((MEM_GIB - 2) / 4))
+DEFAULT_SLOTS=$([[ $E2E_EMULATOR == real ]] && echo 2 || echo 3)
+((FIT < DEFAULT_SLOTS)) && DEFAULT_SLOTS=$((FIT < 2 ? 2 : FIT))
+SLOTS=${E2E_SLOTS:-$DEFAULT_SLOTS}
 KVM_CAPACITY=${E2E_KVM_CAPACITY:-$SLOTS}
 TAG=e2e
 HUB_IMAGE=emulator-hub:$TAG
@@ -138,6 +145,15 @@ for ((n = 0; n < SLOTS; n++)); do
   N=$n IP=$IP envsubst <e2e/manifests/slots.yaml.tmpl >>"$STATE/slots.yaml"
 done
 export HUB_IMAGE EMULATOR_IMAGE SLOT_IPS API_TOKEN BOOT_TIMEOUT_S
+$K create namespace emulator-hub --dry-run=client -o yaml | $K apply -f - >/dev/null
+# The shared adb key (kept across re-runs, like the API token).
+if [[ ! -f $STATE/adbkey ]]; then
+  docker run --rm -v "$STATE:/out" --entrypoint sh "$TOOLBOX_IMAGE" -c \
+    'adb keygen /out/adbkey >/dev/null 2>&1 && chmod 644 /out/adbkey /out/adbkey.pub'
+fi
+$K -n emulator-hub create secret generic emulator-hub-adb-key \
+  --from-file=adbkey="$STATE/adbkey" --from-file=adbkey.pub="$STATE/adbkey.pub" \
+  --dry-run=client -o yaml | $K apply -f - >/dev/null
 render <e2e/manifests/hub.yaml | $K apply -f - >/dev/null
 $K apply -f "$STATE/slots.yaml" -f e2e/manifests/ingress.yaml -f e2e/manifests/netpol.yaml >/dev/null
 $K -n emulator-hub rollout restart deploy/emulator-hub >/dev/null

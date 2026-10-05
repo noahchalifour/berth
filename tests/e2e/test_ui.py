@@ -179,11 +179,6 @@ async def test_rest_error_mapping(env, mcp, kube, hub_env, profile, holder):
         assert r.status_code == 502 and "exited during boot" in r.json()["detail"]
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="POST /api/leases blocks for the whole cold boot (no boot_wait_seconds); ingress-nginx's 60s "
-    "proxy-read-timeout cuts it off with a 504 (ENG-338)",
-)
 async def test_ui_boot_of_a_slow_cold_emulator_survives_the_ingress(env, hub_env, profile):
     hub_env(HUB_EMULATOR_IMAGE=f"{env.fake_image}:slow")  # 75s boot, like a cold emulator
     async with ui_client(timeout=300) as ui:

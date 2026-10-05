@@ -71,3 +71,14 @@ def test_pod_memory_covers_the_images_minimum_guest_ram():
     assert memory_mb(tablet) == (4096 + 2048, 4096 + 2048 + 1024)
     tv = Profile("t", "tv", "android-36-android-tv", "tv_720p", 4096, 2)
     assert memory_mb(tv) == (4096 + 1024, 4096 + 1024 + 1024)
+
+
+def test_shared_adb_key_is_passed_to_the_emulator():
+    from emulator_hub.models import Profile
+
+    p = Profile(**next(d for d in DEFAULT_PROFILES if d["name"] == "tv"))
+    plain = build_pod(namespace="n", image="i", slot=0, lease_id="abcdef0123", profile=p)
+    assert {e["name"] for e in plain["spec"]["containers"][0]["env"]}.isdisjoint({"ADB_KEY", "ADB_KEY_PUB"})
+    keyed = build_pod(namespace="n", image="i", slot=0, lease_id="abcdef0123", profile=p, adb_key=("PRIV", "PUB"))
+    env = {e["name"]: e["value"] for e in keyed["spec"]["containers"][0]["env"]}
+    assert env["ADB_KEY"] == "PRIV" and env["ADB_KEY_PUB"] == "PUB"

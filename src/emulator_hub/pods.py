@@ -33,7 +33,15 @@ def memory_mb(profile: Profile) -> tuple[int, int]:
     return guest + overhead, guest + overhead + 1024
 
 
-def build_pod(*, namespace: str, image: str, slot: int, lease_id: str, profile: Profile) -> dict:
+def build_pod(
+    *,
+    namespace: str,
+    image: str,
+    slot: int,
+    lease_id: str,
+    profile: Profile,
+    adb_key: tuple[str, str] | None = None,
+) -> dict:
     sysimg = SYSTEM_IMAGES[profile.system_image]
     mem_request, mem_limit = memory_mb(profile)
     return {
@@ -77,6 +85,11 @@ def build_pod(*, namespace: str, image: str, slot: int, lease_id: str, profile: 
                         {"name": "DEVICE", "value": profile.device},
                         {"name": "RAM_MB", "value": str(profile.ram_mb)},
                         {"name": "CORES", "value": str(profile.cores)},
+                        *(
+                            [{"name": "ADB_KEY", "value": adb_key[0]}, {"name": "ADB_KEY_PUB", "value": adb_key[1]}]
+                            if adb_key
+                            else []
+                        ),
                     ],
                     "ports": [
                         {"name": "adb", "containerPort": ADB_PORT},

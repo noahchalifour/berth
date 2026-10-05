@@ -8,7 +8,7 @@ from pathlib import Path
 
 import uvicorn
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse, Response
+from fastapi.responses import JSONResponse, PlainTextResponse, Response
 from fastapi.staticfiles import StaticFiles
 from mcp.server.transport_security import TransportSecuritySettings
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
@@ -16,6 +16,7 @@ from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from emulator_hub import metrics
 from emulator_hub.api import build_api
 from emulator_hub.auth import bearer_ok, ui_user
+from emulator_hub.disconnect import CancelOnDisconnect
 from emulator_hub.emulator_grpc import GrpcBootProbe, GrpcScreen
 from emulator_hub.leases import EngineConfig, LeaseEngine
 from emulator_hub.liveview import build_liveview
@@ -49,6 +50,8 @@ def create_ui_app(engine: LeaseEngine, screen_factory=GrpcScreen) -> FastAPI:
     app.include_router(build_api(engine))
     app.include_router(build_liveview(engine, screen_factory))
     app.mount("/", StaticFiles(directory=UI_DIR, html=True), name="ui")
+    # Outermost, so it sees the client leave while acquire is queued or booting.
+    app.add_middleware(CancelOnDisconnect, paths=("/api/leases",))
     return app
 
 
@@ -65,8 +68,7 @@ def create_machine_app(engine: LeaseEngine, api_token: str, reap_interval_s: flo
     async def reaper():
         while True:
             try:
-                for _, reason in await engine.reap():
-                    metrics.LEASES_ENDED.labels(reason).inc()
+                await engine.reap()  # each ended lease is counted in LeaseEngine._end
             except Exception:
                 log.exception("reap failed")
             await asyncio.sleep(reap_interval_s)
@@ -91,6 +93,13 @@ def create_machine_app(engine: LeaseEngine, api_token: str, reap_interval_s: flo
     async def healthz():
         return {"ok": True}
 
+    @app.get("/adbkey", response_class=PlainTextResponse)
+    async def adbkey():
+        """The adb private key every emulator trusts (bearer token required)."""
+        if engine.config.adb_key is None:
+            return PlainTextResponse("this hub has no shared adb key (HUB_ADB_KEY_DIR)", status_code=404)
+        return PlainTextResponse(engine.config.adb_key[0] + "\n", headers={"Cache-Control": "no-store"})
+
     @app.get("/metrics")
     async def prom():
         metrics.SLOTS_IN_USE.set(sum(1 for s in engine.store.list_slots() if s.state != SLOT_FREE))
@@ -101,6 +110,7 @@ def create_machine_app(engine: LeaseEngine, api_token: str, reap_interval_s: flo
 
     # mcp_app routes its own /mcp path; appending its routes keeps it at /mcp.
     app.router.routes.extend(mcp_app.routes)
+    app.add_middleware(CancelOnDisconnect, paths=("/mcp",))
     return app
 
 
@@ -115,6 +125,7 @@ async def serve(settings: Settings) -> None:
             slot_ips=settings.slot_ip_list,
             boot_timeout_s=settings.boot_timeout_s,
             max_age_s=settings.max_age_s,
+            adb_key=settings.adb_key(),
         ),
     )
     common = dict(host="0.0.0.0", proxy_headers=True, forwarded_allow_ips="*", log_level="info")

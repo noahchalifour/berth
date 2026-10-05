@@ -342,11 +342,6 @@ async def test_reaper_reasons_are_counted(env, mcp, kube, hub_env, profile, hold
     await wait_until(lambda: ended("max_age") + ended("expired") >= max_age0 + expired0 + 1, 90, interval=2)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="emulator_hub_leases_ended_total is only incremented by the reaper; released, forced, boot_failed "
-    "and cancelled are never counted (ENG-341)",
-)
 async def test_every_end_reason_is_counted(env, mcp, hub_env, profile, holder):
     def ended(reason):
         return metric(metrics_text(), "emulator_hub_leases_ended_total", f'reason="{reason}"')
@@ -589,14 +584,10 @@ async def test_shrinking_idle_slots(env, hub_env):
 
 
 @pytest_disruptive
-@pytest.mark.xfail(
-    strict=True,
-    reason="restarting with fewer HUB_SLOT_IPS while the removed slot is leased strands the lease: "
-    "endpoints() raises IndexError and the lease is never ended (ENG-334)",
-)
 async def test_shrinking_slots_under_an_active_lease(env, mcp, kube, hub_env, profile, holder):
-    grants = [await mcp.call("acquire", profile=profile, holder=f"{holder}-{i}", boot_wait_seconds=0)
-              for i in range(len(env.slot_ips))]  # fmt: skip
+    # Leased, not booting: a graceful restart cancels in-flight boots itself.
+    grants = await asyncio.gather(*(acquire_leased(mcp, env, profile, f"{holder}-{i}")
+                                    for i in range(len(env.slot_ips))))  # fmt: skip
     last = next(g for g in grants if g["slot"] == len(env.slot_ips) - 1)
     hub_env(HUB_SLOT_IPS=",".join(env.slot_ips[:-1]))
     async with McpHolder(env) as m:

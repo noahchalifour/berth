@@ -172,11 +172,6 @@ async def test_snapshot_of_a_dead_emulator_is_a_502(env, mcp, kube, hub_env, pro
     assert r.status_code == 502 and "emulator did not return a screenshot" in r.json()["detail"]
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="GrpcScreen._device_size calls getDisplayConfigurations with no deadline, so a dead emulator holds "
-    "each snapshot request (one per slot card per 3s refresh) for ~20s until gRPC gives up (ENG-339)",
-)
 async def test_snapshot_of_a_dead_emulator_fails_fast(env, mcp, kube, hub_env, profile, holder):
     _, took = await _snapshot_of_a_dead_emulator(env, mcp, kube, hub_env, profile, holder)
     assert took < 10, f"{took:.1f}s"
@@ -199,29 +194,23 @@ async def _refusal(url, headers=None):
 
 
 async def test_refused_live_views(env, mcp, kube, hub_env, profile, holder, leased):
-    """Unauthenticated, unknown, ended and still-booting leases are all refused
-    without a session: the ingress answers 401 without authentik, and the hub
-    refuses the upgrade itself for the rest."""
+    """Without an authentik session the ingress answers 401; past it, the hub
+    accepts and closes with 4401 (no user) or 4404 (no running emulator)."""
     from tests.e2e.hub import port_forward
 
     assert await _refusal(ws_url(leased["lease_id"])) == (401, None)
     with port_forward(kube, 8080) as ports:
         direct = f"ws://127.0.0.1:{ports[8080]}/api/leases/{leased['lease_id']}/live"
         status, code = await _refusal(direct)
-    assert (status, code) in ((403, None), (None, 4401))
-    assert await _refusal(ws_url("nope"), COOKIE) in ((403, None), (None, 4404))
+    assert (status, code) == (None, 4401)
+    assert await _refusal(ws_url("nope"), COOKIE) == (None, 4404)
     await mcp.call("release", lease_id=leased["lease_id"])
-    assert await _refusal(ws_url(leased["lease_id"]), COOKIE) in ((403, None), (None, 4404))
+    assert await _refusal(ws_url(leased["lease_id"]), COOKIE) == (None, 4404)
     hub_env(HUB_EMULATOR_IMAGE=f"{env.fake_image}:slow")
     booting = await mcp.call("acquire", profile=profile, holder=holder, boot_wait_seconds=0)
-    assert await _refusal(ws_url(booting["lease_id"]), COOKIE) in ((403, None), (None, 4404))
+    assert await _refusal(ws_url(booting["lease_id"]), COOKIE) == (None, 4404)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="the live view closes before accept(), which uvicorn turns into a bare HTTP 403: real clients never "
-    "see the 4401/4404 close codes the UI and docs rely on to tell 'sign in' from 'lease gone' (ENG-339)",
-)
 async def test_close_codes_reach_real_clients(env, kube, leased):
     from tests.e2e.hub import port_forward
 
@@ -401,10 +390,6 @@ async def test_text_input_with_symbols_unicode_and_truncation(env, inputs, lease
         assert text == want
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="handle_input raises on malformed client messages and the exception ends the session (ENG-339)",
-)
 @pytest.mark.parametrize(
     "bad",
     [

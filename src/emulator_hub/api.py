@@ -22,6 +22,9 @@ class AcquireBody(BaseModel):
     profile: str
     ttl_minutes: int = 30
     wait_seconds: int = Field(default=0, ge=0, le=600)
+    # Past this the grant comes back "booting" (the UI's refresh shows it
+    # finish), so the request never outlives an ingress read timeout.
+    boot_wait_seconds: int = Field(default=30, ge=0, le=600)
 
 
 class ProfileBody(BaseModel):
@@ -84,7 +87,10 @@ def build_api(engine: LeaseEngine) -> APIRouter:
     async def acquire(body: AcquireBody, request: Request):
         holder = f"ui:{ui_user(request.headers)}"
         try:
-            return (await engine.acquire(body.profile, holder, body.ttl_minutes, body.wait_seconds)).to_dict()
+            grant = await engine.acquire(
+                body.profile, holder, body.ttl_minutes, body.wait_seconds, boot_wait_seconds=body.boot_wait_seconds
+            )
+            return grant.to_dict()
         except HubError as exc:
             raise to_http(exc) from exc
 

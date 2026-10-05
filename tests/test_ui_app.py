@@ -58,3 +58,10 @@ async def test_busy_is_409_with_position(engine):
             assert (await c.post("/api/leases", json={"profile": "phone"}, headers=UI)).status_code == 200
         busy = await c.post("/api/leases", json={"profile": "phone"}, headers=UI)
         assert busy.status_code == 409 and busy.json()["detail"]["position"] == 1
+
+
+async def test_rest_acquire_returns_a_booting_grant_past_boot_wait(engine, probe):
+    probe.after = 10**9  # never boots during this test
+    async with ui_client(engine) as c:
+        r = await c.post("/api/leases", json={"profile": "phone", "boot_wait_seconds": 0}, headers=UI)
+    assert r.status_code == 200 and r.json()["state"] == "booting"

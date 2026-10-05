@@ -26,3 +26,16 @@ def test_upsert_validates(tmp_path):
         s.upsert_profile(Profile("x", "phone", "android-35-google-apis", "pixel_8", 512, 2))
     with pytest.raises(NotFound):
         s.delete_profile("nope")
+
+
+def test_settings_read_the_adb_key_dir(tmp_path, monkeypatch):
+    from emulator_hub.settings import Settings
+
+    (tmp_path / "adbkey").write_text("PRIV\n")
+    (tmp_path / "adbkey.pub").write_text("PUB user@host\n")
+    monkeypatch.setenv("HUB_EMULATOR_IMAGE", "i")
+    monkeypatch.setenv("HUB_SLOT_IPS", "1.2.3.4")
+    monkeypatch.setenv("HUB_API_TOKEN", "t")
+    assert Settings().adb_key() is None
+    monkeypatch.setenv("HUB_ADB_KEY_DIR", str(tmp_path))
+    assert Settings().adb_key() == ("PRIV", "PUB user@host")

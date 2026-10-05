@@ -47,6 +47,32 @@ Deployment manifests live outside this repo, in
 [`kubernetes/apps/emulator-hub/`](https://github.com/noahchalifour/home-lab-infrastructure/tree/main/kubernetes/apps/emulator-hub)
 in `noahchalifour/home-lab-infrastructure`.
 
+### adb on Android TV
+
+`android-tv` system images are `user` builds: adbd trusts only the key that
+the emulator pushes into the guest at boot, so a client key the device has
+never seen stays `unauthorized`. To make TV usable, give the hub one key pair
+for every emulator:
+
+```bash
+adb keygen adbkey   # writes adbkey and adbkey.pub
+kubectl -n emulator-hub create secret generic emulator-hub-adb-key \
+  --from-file=adbkey --from-file=adbkey.pub
+```
+
+Mount that Secret into the hub and set `HUB_ADB_KEY_DIR` to the mount path.
+Every emulator then trusts that key. Bearer-token holders can download it from
+`GET /adbkey` on the machine port, and each lease grant carries
+`adb_key_url: "/adbkey"`. The MCP instructions tell agents to install it as
+`~/.android/adbkey` before `adb connect`.
+
+The hub passes the key to each emulator Pod as an env var, so anyone who can
+read Pods in the namespace can read it too. The trade-off: anyone with the API
+token can reach any leased device over adb.
+That is the same trust boundary as today, where locking is cooperative. Without
+`HUB_ADB_KEY_DIR` nothing changes: phone and tablet images still accept any
+client key, and TV does not.
+
 ## Fonts
 
 The web UI vendors [Inter](https://github.com/rsms/inter) and
