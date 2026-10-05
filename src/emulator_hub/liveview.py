@@ -26,13 +26,28 @@ log = logging.getLogger(__name__)
 INPUT_DRAIN_S = 60
 
 
+def _number(value) -> float | None:
+    # bool is an int subclass; a JSON true is not a coordinate.
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    return float(value)
+
+
 async def handle_input(screen, raw: str) -> None:
-    msg = json.loads(raw)
+    """Apply one viewer message. Anything malformed is ignored: a bad message
+    must never end the viewer's session."""
+    try:
+        msg = json.loads(raw)
+    except ValueError:
+        log.debug("live view: ignoring non-JSON input %.80r", raw)
+        return
+    if not isinstance(msg, dict):
+        return
     kind = msg.get("t")
     if kind == "touch":
-        x, y = float(msg["x"]), float(msg["y"])
-        if 0 <= x <= 1 and 0 <= y <= 1:
-            await screen.touch(x, y, bool(msg["down"]))
+        x, y = _number(msg.get("x")), _number(msg.get("y"))
+        if x is not None and y is not None and 0 <= x <= 1 and 0 <= y <= 1:
+            await screen.touch(x, y, bool(msg.get("down")))
     elif kind == "key" and msg.get("key") in KEYS:
         await screen.key(msg["key"])
     elif kind == "text" and isinstance(msg.get("text"), str):
@@ -58,6 +73,10 @@ def build_liveview(engine: LeaseEngine, screen_factory: Callable = GrpcScreen) -
 
     @r.websocket("/api/leases/{lease_id}/live")
     async def live(websocket: WebSocket, lease_id: str):
+        # Accept before refusing: a close before accept() reaches the client as
+        # a bare HTTP 403, and the codes are how it tells "sign in" (4401) from
+        # "lease gone" (4404).
+        await websocket.accept()
         if ui_user(websocket.headers) is None:
             await websocket.close(code=4401)
             return
@@ -65,7 +84,6 @@ def build_liveview(engine: LeaseEngine, screen_factory: Callable = GrpcScreen) -
         if pod_ip is None:
             await websocket.close(code=4404)
             return
-        await websocket.accept()
         screen = screen_factory(pod_ip)
 
         async def pump_frames():
@@ -83,7 +101,12 @@ def build_liveview(engine: LeaseEngine, screen_factory: Callable = GrpcScreen) -
 
         async def pump_input():
             while True:
-                queue.put_nowait(await websocket.receive_text())
+                message = await websocket.receive()
+                if message["type"] == "websocket.disconnect":
+                    raise WebSocketDisconnect(message.get("code", 1000))
+                if message.get("text") is not None:
+                    queue.put_nowait(message["text"])
+                # Binary client frames carry no input: ignored.
 
         worker = asyncio.create_task(apply_input())
         tasks = [asyncio.create_task(pump_frames()), asyncio.create_task(pump_input()), worker]

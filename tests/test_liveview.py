@@ -107,3 +107,38 @@ async def test_input_sent_before_disconnect_is_still_delivered(engine):
             time.sleep(0.05)
     assert screens[0].inputs == [("text", "one"), ("text", "two"), ("text", "three")]
     assert screens[0].closed
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        "not json",
+        "[1, 2]",
+        json.dumps({"t": "touch", "y": 0.5, "down": True}),
+        json.dumps({"t": "touch", "x": "abc", "y": 0, "down": True}),
+        json.dumps({"t": "touch", "x": True, "y": 0, "down": True}),
+        json.dumps({"t": "key"}),
+        json.dumps({"t": "text", "text": 5}),
+    ],
+)
+async def test_malformed_input_is_ignored(bad):
+    from emulator_hub.liveview import handle_input
+
+    screen = FakeScreen("10.0.0.1")
+    await handle_input(screen, bad)
+    assert screen.inputs == []
+
+
+async def test_bad_and_binary_messages_do_not_end_the_session(engine, app, screens):
+    grant = await engine.acquire("phone", "a", 30, 1)
+    with (
+        TestClient(app) as client,
+        client.websocket_connect(f"/api/leases/{grant.lease.id}/live", headers={"X-authentik-username": "noah"}) as ws,
+    ):
+        ws.receive_bytes()
+        ws.send_text("not json")
+        ws.send_bytes(b"\x00\x01")
+        ws.send_text(json.dumps({"t": "touch", "x": 0.5, "y": 0.5, "down": True}))
+        ws.receive_bytes()  # still streaming
+        ws.close()
+    assert screens[0].inputs == [("touch", 0.5, 0.5, True)]

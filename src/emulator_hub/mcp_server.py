@@ -16,6 +16,10 @@ Android emulators (phone, tablet, TV) for testing. Workflow:
    state "booting" with the lease_id - call heartbeat(lease_id) every ~15s until
    state is "leased". Then run `adb connect <adb>` and use adb, flutter run, or
    any tool you like. Inside the cluster use `in_cluster` instead.
+   If the grant has `adb_key_url`, the device only trusts the hub's adb key
+   (android-tv images): first fetch it with your bearer token, e.g.
+   `curl -H "Authorization: Bearer $TOKEN" <adb_key_url> > ~/.android/adbkey &&
+   adb kill-server`, then `adb connect`. The key works for every lease.
 3. heartbeat(lease_id) at least every ttl_minutes or the emulator is destroyed.
 4. release(lease_id) as soon as you are done. Every lease gets a fresh device;
    nothing you install survives release.
@@ -46,6 +50,9 @@ class LeaseGrant(BaseModel):
     adb: str
     in_cluster: str
     expires_at: float | None
+    # Path of the hub's adb private key on this MCP endpoint ("/adbkey"),
+    # present when the hub has one; see INSTRUCTIONS.
+    adb_key_url: str | None = None
 
 
 class Released(BaseModel):

@@ -47,3 +47,18 @@ async def test_text_skips_what_has_no_key(monkeypatch):
     screen._stub = RecordingStub()
     await screen.text("a你é%b")
     assert [e.text for e in screen._stub.keys] == ["a", "%", "b"]
+
+
+async def test_display_size_lookup_has_a_deadline():
+    calls = []
+
+    class Stub:
+        async def getDisplayConfigurations(self, request, timeout=None):
+            calls.append(timeout)
+            return pb.DisplayConfigurations(displays=[pb.DisplayConfiguration(width=1080, height=2400)])
+
+    screen = GrpcScreen.__new__(GrpcScreen)
+    screen._stub = Stub()
+    screen._size = None
+    assert await screen._device_size() == (1080, 2400)
+    assert calls and calls[0] is not None and calls[0] <= 10

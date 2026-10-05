@@ -97,9 +97,18 @@ def container(*args, **kw):
 
 
 @pytest.fixture(scope="module")
-def booted():
+def shared_key():
+    """An adb key pair handed to the emulator the way the hub does (ADB_KEY /
+    ADB_KEY_PUB, from HUB_ADB_KEY_DIR)."""
+    d = tempfile.mkdtemp(prefix="hubkey", dir="/tmp")
+    subprocess.run(["adb", "keygen", f"{d}/adbkey"], capture_output=True, check=True)
+    return Path(d, "adbkey").read_text().strip(), Path(d, "adbkey.pub").read_text().strip()
+
+
+@pytest.fixture(scope="module")
+def booted(shared_key):
     """One booted emulator shared by the boot-dependent tests in this module."""
-    with container("--device", "/dev/kvm") as c:
+    with container("--device", "/dev/kvm", env={"ADB_KEY": shared_key[0], "ADB_KEY_PUB": shared_key[1]}) as c:
         from emulator_hub.emulator_grpc import GrpcBootProbe
 
         probe = GrpcBootProbe()
@@ -330,20 +339,33 @@ def test_text_reaches_a_focused_field(booted):
 # ------------------------------------------------------------------ adb
 
 
-def test_never_seen_client_key_is_authorized(booted):
-    """What a real agent does: a fresh adb key, never copied from the container."""
+def test_hubs_shared_key_is_authorized(booted, shared_key):
+    """What an agent does with the key from the hub's /adbkey: works on every
+    image, including android-tv's `user` build."""
+    env = fresh_adb()
+    Path(env["HOME"], ".android", "adbkey").write_text(shared_key[0] + "\n")
+    target = f"127.0.0.1:{booted.adb_port}"
+    assert connect(env, target) == "device"
+    assert adb(env, "-s", target, "shell", "getprop sys.boot_completed").strip() == "1"
+
+
+def test_never_seen_client_key_is_authorized_on_debuggable_images(booted):
+    """A fresh adb key, never copied from the container. Debuggable images
+    accept it; android-tv is a `user` build that only trusts the shared key."""
     if "android-tv" in SYSTEM_IMAGE:
-        pytest.xfail("android-tv images reject a never-seen adb key as unauthorized (ENG-342)")
+        pytest.skip("android-tv (user build) trusts only the shared key: see test_hubs_shared_key_is_authorized")
     env = fresh_adb()
     target = f"127.0.0.1:{booted.adb_port}"
     assert connect(env, target) == "device"
     assert adb(env, "-s", target, "shell", "getprop sys.boot_completed").strip() == "1"
 
 
-def test_two_clients_with_different_keys(booted):
-    if "android-tv" in SYSTEM_IMAGE:
-        pytest.xfail("android-tv images reject a never-seen adb key as unauthorized (ENG-342)")
+def test_two_clients_at_once(booted, shared_key):
+    # Different keys where the image accepts any; the shared key twice on TV.
     a, b = fresh_adb(), fresh_adb()
+    if "android-tv" in SYSTEM_IMAGE:
+        for env in (a, b):
+            Path(env["HOME"], ".android", "adbkey").write_text(shared_key[0] + "\n")
     target = f"127.0.0.1:{booted.adb_port}"
     assert connect(a, target) == "device" and connect(b, target) == "device"
     assert adb(a, "-s", target, "shell", "echo a").strip() == "a"
@@ -522,3 +544,12 @@ def test_boots_within_the_pods_memory_limit(ram_mb):
         state = subprocess.run(["docker", "inspect", "-f", "{{.State.OOMKilled}} {{.State.Status}}", c.name],
                                capture_output=True, text=True).stdout.strip()  # fmt: skip
         assert state == "false running", state
+
+
+def test_entrypoint_installs_the_hubs_key_privately(booted, shared_key):
+    """The emulator's own adb identity is the hub's key (so its pubkey is the
+    one pushed into the guest), stored private to the emulator user."""
+    priv = booted.exec("cat", "/home/emu/.android/adbkey").strip()
+    pub = booted.exec("cat", "/home/emu/.android/adbkey.pub").strip()
+    assert priv == shared_key[0] and pub == shared_key[1]
+    assert booted.exec("stat", "-c", "%a", "/home/emu/.android/adbkey").strip() == "600"

@@ -8,6 +8,7 @@ other.
 """
 
 import asyncio
+import contextlib
 import time
 import uuid
 from collections import deque
@@ -15,6 +16,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Protocol
 
+from emulator_hub import metrics
 from emulator_hub.models import (
     LEASE_BOOTING,
     LEASE_LEASED,
@@ -45,6 +47,8 @@ class EngineConfig:
     max_age_s: float = 4 * 3600
     min_ttl_minutes: int = 1
     max_ttl_minutes: int = 120
+    # (private PEM, public key) every emulator trusts; see Settings.adb_key_dir.
+    adb_key: tuple[str, str] | None = None
 
 
 @dataclass(frozen=True)
@@ -52,6 +56,7 @@ class Grant:
     lease: Lease
     adb: str
     in_cluster: str
+    adb_key_url: str | None = None
 
     def to_dict(self) -> dict:
         return {
@@ -62,6 +67,7 @@ class Grant:
             "adb": self.adb,
             "in_cluster": self.in_cluster,
             "expires_at": self.lease.expires_at,
+            "adb_key_url": self.adb_key_url,
         }
 
 
@@ -86,6 +92,8 @@ class LeaseEngine:
         self._boots: dict[str, asyncio.Task[None]] = {}
         # Boot durations since the last /metrics scrape; drained into the histogram there.
         self.boot_seconds: list[float] = []
+        # Cleanups that must outlive a cancelled caller (see _finish).
+        self._cleanups: set[asyncio.Task] = set()
 
     # ---- queries
     def queue_depth(self) -> int:
@@ -99,7 +107,8 @@ class LeaseEngine:
 
     def grant(self, lease: Lease) -> Grant:
         adb, in_cluster = self.endpoints(lease.slot)
-        return Grant(lease=lease, adb=adb, in_cluster=in_cluster)
+        key_url = "/adbkey" if self.config.adb_key else None
+        return Grant(lease=lease, adb=adb, in_cluster=in_cluster, adb_key_url=key_url)
 
     # ---- acquire
     async def acquire(
@@ -162,13 +171,18 @@ class LeaseEngine:
                     slot=lease.slot,
                     lease_id=lease.id,
                     profile=profile,
+                    adb_key=self.config.adb_key,
                 )
             )
             started = self.clock()
             self.devices[lease.id] = await self._wait_for_boot(pod_name(lease.slot, lease.id))
             self.boot_seconds.append(self.clock() - started)
         except asyncio.CancelledError:
-            await self._end(lease.id, "cancelled")
+            # Cancellation can be level-triggered (anyio re-cancels at every
+            # await under Starlette), which would interrupt the Pod delete
+            # after the lease row already says cancelled. Run the cleanup as
+            # its own task so it always finishes.
+            await self._finish(self._end(lease.id, "cancelled"))
             raise
         except BootFailed:
             await self._end(lease.id, "boot_failed")
@@ -216,6 +230,14 @@ class LeaseEngine:
             await asyncio.sleep(self.config.boot_poll_s)
         raise BootFailed(f"the emulator did not finish booting within {int(self.config.boot_timeout_s)}s")
 
+    async def _finish(self, coro) -> None:
+        """Run `coro` to completion even if the caller keeps being cancelled."""
+        task = asyncio.ensure_future(coro)
+        self._cleanups.add(task)
+        task.add_done_callback(self._cleanups.discard)
+        with contextlib.suppress(asyncio.CancelledError):
+            await asyncio.shield(task)
+
     # ---- slot hand-off
     def _hand_off(self, slot: int) -> None:
         """Give a freed slot to the oldest live waiter, or mark it free."""
@@ -231,6 +253,7 @@ class LeaseEngine:
         lease = self.store.get_lease(lease_id)
         if not self.store.end_lease(lease_id, reason, self.clock()):
             return False
+        metrics.LEASES_ENDED.labels(reason).inc()
         self.devices.pop(lease_id, None)
         try:
             await self.pods.delete(pod_name(lease.slot, lease.id))
@@ -297,11 +320,14 @@ class LeaseEngine:
         now = self.clock()
         pods = await self.pods.list_emulators()
         active = {lease.id: lease for lease in self.store.active_leases()}
+        slots = len(self.config.slot_ips)
         for lease in active.values():
             # A booting lease's caller died with the previous process; a leased
-            # one without a Pod has nothing behind it.
-            if lease.state == LEASE_BOOTING or pod_name(lease.slot, lease.id) not in pods:
-                self.store.end_lease(lease.id, "lost", now)
+            # one without a Pod has nothing behind it; one on a slot that was
+            # configured away (fewer HUB_SLOT_IPS) has no endpoint any more.
+            if lease.state == LEASE_BOOTING or lease.slot >= slots or pod_name(lease.slot, lease.id) not in pods:
+                if self.store.end_lease(lease.id, "lost", now):
+                    metrics.LEASES_ENDED.labels("lost").inc()
         live = {lease.id for lease in self.store.active_leases()}
         for lease in self.store.active_leases():
             ip = await self.pods.pod_ip(pod_name(lease.slot, lease.id))

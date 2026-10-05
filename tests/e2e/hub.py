@@ -502,17 +502,25 @@ def pod_name(slot: int, lease_id: str) -> str:
 
 
 class Adb:
-    """adb with a per-run key that the emulator has never seen."""
+    """adb as an agent runs it: by default with a fresh key the emulator has
+    never seen; `private_key` (the PEM from the hub's /adbkey) uses the hub's
+    shared key instead, as the MCP instructions tell agents to."""
 
-    def __init__(self, home: Path):
+    def __init__(self, home: Path, private_key: str | None = None):
         self.home = home
         self.env = {**os.environ, "HOME": str(home), "ANDROID_USER_HOME": str(home / ".android")}
         self.env.pop("ADB_VENDOR_KEYS", None)
         (home / ".android").mkdir(parents=True, exist_ok=True)
         key = home / ".android" / "adbkey"
-        if not key.exists():
+        if private_key:
+            key.write_text(private_key)
+            key.chmod(0o600)
+        elif not key.exists():
             subprocess.run(["adb", "keygen", str(key)], env=self.env, capture_output=True, check=True)
         subprocess.run(["adb", "start-server"], env=self.env, capture_output=True)
+
+    def stop(self) -> None:
+        subprocess.run(["adb", "kill-server"], env=self.env, capture_output=True)
 
     def run(self, *args: str, timeout: float = 120, check: bool = True) -> str:
         res = subprocess.run(["adb", *args], env=self.env, capture_output=True, text=True, timeout=timeout)
@@ -584,6 +592,14 @@ class Adb:
                 return
             time.sleep(2)
         raise AssertionError(f"{target} never reported sys.boot_completed=1")
+
+
+def hub_adb_key(env: Env, grant: dict) -> str:
+    """Fetch the shared key exactly as INSTRUCTIONS say: GET adb_key_url with the bearer."""
+    assert grant.get("adb_key_url"), grant
+    r = httpx.get(f"http://{MCP_HOST}{grant['adb_key_url']}", headers={"Authorization": f"Bearer {env.api_token}"})
+    r.raise_for_status()
+    return r.text
 
 
 def tcp_banner(host: str, port: int, timeout: float = 5) -> str:

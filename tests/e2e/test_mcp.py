@@ -335,3 +335,19 @@ async def test_status_stays_responsive_during_a_boot(env, mcp, hub_env, profile,
     assert not booting.done()
     booting.cancel()
     await asyncio.gather(booting, return_exceptions=True)
+
+
+def test_grants_point_at_the_shared_adb_key(env, e2e_profiles):
+    """The cluster runs with HUB_ADB_KEY_DIR: every grant says where the key is,
+    the key needs the bearer, and it is the private half of a real adb key."""
+    import httpx as _httpx
+
+    with _httpx.Client(timeout=30) as c:
+        assert c.get(f"http://{MCP_HOST}/adbkey").status_code == 401
+        r = c.get(f"http://{MCP_HOST}/adbkey", headers={"Authorization": f"Bearer {env.api_token}"})
+    assert r.status_code == 200 and "PRIVATE KEY" in r.text
+
+
+async def test_acquire_grant_carries_adb_key_url(env, mcp, profile, holder):
+    grant = await mcp.call("acquire", profile=profile, holder=holder, boot_wait_seconds=0)
+    assert grant["adb_key_url"] == "/adbkey"

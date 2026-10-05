@@ -25,3 +25,18 @@ async def test_metrics_report_slots_and_boot_durations(engine):
         body = (await c.get("/metrics")).text
     assert "emulator_hub_slots_in_use 1.0" in body
     assert "emulator_hub_boot_seconds_count" in body
+
+
+async def test_adbkey_endpoint_needs_the_bearer_and_a_configured_key(engine):
+    import dataclasses
+
+    async with machine_client(engine) as c:
+        assert (await c.get("/adbkey")).status_code == 401
+        assert (await c.get("/adbkey", headers=BEARER)).status_code == 404
+    engine.config = dataclasses.replace(engine.config, adb_key=("-----BEGIN PRIVATE KEY-----\nX\n", "PUB user@host"))
+    async with machine_client(engine) as c:
+        r = await c.get("/adbkey", headers=BEARER)
+    assert r.status_code == 200 and r.text.startswith("-----BEGIN PRIVATE KEY-----")
+    assert r.headers["cache-control"] == "no-store"
+    grant = await engine.acquire("tv", "a", 30, 1)
+    assert grant.to_dict()["adb_key_url"] == "/adbkey"
