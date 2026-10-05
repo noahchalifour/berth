@@ -172,7 +172,7 @@ async def test_full_agent_flow(env, mcp, adb, profile, holder):
     profiles = await mcp.call("list_profiles")
     assert profile in {p["name"] for p in profiles["profiles"]}
     grant = await mcp.call("acquire", profile=profile, holder=holder, boot_wait_seconds=0)
-    assert set(grant) == {"lease_id", "state", "profile", "slot", "adb", "in_cluster", "expires_at"}
+    assert set(grant) == {"lease_id", "state", "profile", "slot", "adb", "in_cluster", "expires_at", "adb_key_url"}
     while grant["state"] == "booting":
         await asyncio.sleep(2)
         grant = await mcp.call("heartbeat", lease_id=grant["lease_id"])

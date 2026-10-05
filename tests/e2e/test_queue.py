@@ -128,7 +128,7 @@ async def test_every_way_a_slot_frees_hands_it_to_the_oldest_waiter(env, mcp, ku
     """Fill the pool so that slot 0's lease ends by `how`, queue a waiter, and
     check the waiter gets slot 0."""
     if how == "boot_failure":
-        hub_env(HUB_EMULATOR_IMAGE=f"{env.fake_image}:never-boots", HUB_BOOT_TIMEOUT_S="15")
+        hub_env(HUB_EMULATOR_IMAGE=f"{env.fake_image}:never-boots", HUB_BOOT_TIMEOUT_S="30")
     elif how == "cancelled_boot":
         hub_env(HUB_EMULATOR_IMAGE=f"{env.fake_image}:slow")
     # Slot 0's victim first, so it lands on slot 0.
@@ -138,6 +138,10 @@ async def test_every_way_a_slot_frees_hands_it_to_the_oldest_waiter(env, mcp, ku
     else:
         victim = await acquire_leased(mcp, env, profile, f"{holder}-victim", ttl_minutes=1 if how == "expiry" else 30)
     assert victim["slot"] == 0
+    if how == "boot_failure":
+        # The fills' boots fail too (same image, same timeout): start them well
+        # after the victim's, so slot 0 is unambiguously the first to free.
+        await asyncio.sleep(15)
     # The rest of the pool is held by leases that do not end during the test.
     for i in range(1, len(env.slot_ips)):
         g = await mcp.call("acquire", profile=profile, holder=f"{holder}-fill{i}", boot_wait_seconds=0)
