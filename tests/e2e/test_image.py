@@ -447,17 +447,18 @@ def test_bad_config_fails_fast_with_a_readable_error(bad):
         assert "error" in logs or "invalid" in logs or "not" in logs
 
 
-def test_fresh_emptydir_gives_a_factory_fresh_device():
+def test_fresh_emptydir_gives_a_factory_fresh_device(shared_key):
     """-wipe-data / -no-snapshot: a new container on a fresh /avd has no trace
-    of the previous one."""
+    of the previous one. (Uses the shared key, so it runs on every image.)"""
     env = fresh_adb()
-    with container("--device", "/dev/kvm") as c:
+    Path(env["HOME"], ".android", "adbkey").write_text(shared_key[0] + "\n")
+    keyed = {"ADB_KEY": shared_key[0], "ADB_KEY_PUB": shared_key[1]}
+    with container("--device", "/dev/kvm", env=keyed) as c:
         assert _wait_booted(c)
         tgt = f"127.0.0.1:{c.adb_port}"
-        if connect(env, tgt) != "device":
-            pytest.skip("adb not authorized for a fresh key on this image (see test_never_seen_client_key)")
+        assert connect(env, tgt) == "device"
         adb(env, "-s", tgt, "shell", "echo marker > /data/local/tmp/marker")
-    with container("--device", "/dev/kvm") as c:
+    with container("--device", "/dev/kvm", env=keyed) as c:
         assert _wait_booted(c)
         tgt = f"127.0.0.1:{c.adb_port}"
         assert connect(env, tgt) == "device"
