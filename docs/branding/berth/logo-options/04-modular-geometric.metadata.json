@@ -1,0 +1,16 @@
+{
+  "number": 4,
+  "slug": "modular-geometric",
+  "name": "Modular geometric",
+  "direction": "Bauhaus-inspired modular identity. Four or five rectangular device tiles create a distinctive capital B silhouette with clear separation representing leased slots in a fleet. Strong geometric construction and playful orderly rhythm. Flat cobalt #2855D9, warm coral #EE735C, and charcoal #202839. Geometric sans-serif Berth wordmark.",
+  "model": "recraft_v4_1",
+  "urls": [
+    "https://d8j0ntlcm91z4.cloudfront.net/user_3HTBh2IWiT7s1sOevenju3ejpEc/hf_20261005_200825_92205d58-9707-4ba9-95ea-bbd3c5983460_min.webp",
+    "https://d8j0ntlcm91z4.cloudfront.net/user_3HTBh2IWiT7s1sOevenju3ejpEc/hf_20261005_200825_92205d58-9707-4ba9-95ea-bbd3c5983460.svg"
+  ],
+  "files": [
+    "docs/branding/berth/logo-options/04-modular-geometric.webp",
+    "docs/branding/berth/logo-options/04-modular-geometric-2.svg"
+  ],
+  "prompt": "Create ONE original logo concept for Berth, a self-hosted Android emulator fleet for AI agents and humans. The concept is a safe assigned dock for a borrowed device. Produce a professional isolated brand logo, with one symbol above one wordmark except for the typographic option. The only text must be Berth (or berth when specified). Center on a pure white square canvas with generous margins. Keep the full lockup within the central 70 percent. Flat vector artwork, crisp paths, recognizable small silhouette. No mockups, photographs, shadows, textures, explanatory labels, taglines, watermarks, multiple alternatives, or famous-brand imitation. Bauhaus-inspired modular identity. Four or five rectangular device tiles create a distinctive capital B silhouette with clear separation representing leased slots in a fleet. Strong geometric construction and playful orderly rhythm. Flat cobalt #2855D9, warm coral #EE735C, and charcoal #202839. Geometric sans-serif Berth wordmark."
+}

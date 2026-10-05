@@ -23,7 +23,13 @@ html, body {
   border-bottom: 1px solid var(--hairline);
 }
 .brand { display: flex; align-items: center; gap: var(--space-xs); font-weight: 500; }
-.brand-mark { width: 16px; height: 16px; border-radius: var(--rounded-xs); background: var(--primary); }
+.brand-mark {
+  display: block; flex-shrink: 0;
+  width: 24px; height: 24px; padding: 3px;
+  border-radius: var(--rounded-xs);
+  background: var(--on-primary);
+  object-fit: contain;
+}
 .tabs { display: flex; gap: var(--space-xxs); }
 /* pricing-tab-default / pricing-tab-selected: selected = surface lift, not accent */
 .tab {

@@ -1,0 +1,16 @@
+{
+  "number": 2,
+  "slug": "nautical-modern",
+  "name": "Nautical modern",
+  "direction": "Contemporary maritime identity, not a generic anchor. A top-down abstract sheltered harbor with a single small boat securely berthed inside a U-shaped dock. Reduce the boat and dock to three or four elegant geometric shapes. Deep ocean blue #123B5D and seafoam #66C7B4. Refined humanist sans-serif Berth wordmark.",
+  "model": "recraft_v4_1",
+  "urls": [
+    "https://d8j0ntlcm91z4.cloudfront.net/user_3HTBh2IWiT7s1sOevenju3ejpEc/hf_20261005_200805_557b23f8-7616-4722-8239-20595104beee_min.webp",
+    "https://d8j0ntlcm91z4.cloudfront.net/user_3HTBh2IWiT7s1sOevenju3ejpEc/hf_20261005_200805_557b23f8-7616-4722-8239-20595104beee.svg"
+  ],
+  "files": [
+    "docs/branding/berth/logo-options/02-nautical-modern.webp",
+    "docs/branding/berth/logo-options/02-nautical-modern-2.svg"
+  ],
+  "prompt": "Create ONE original logo concept for Berth, a self-hosted Android emulator fleet for AI agents and humans. The concept is a safe assigned dock for a borrowed device. Produce a professional isolated brand logo, with one symbol above one wordmark except for the typographic option. The only text must be Berth (or berth when specified). Center on a pure white square canvas with generous margins. Keep the full lockup within the central 70 percent. Flat vector artwork, crisp paths, recognizable small silhouette. No mockups, photographs, shadows, textures, explanatory labels, taglines, watermarks, multiple alternatives, or famous-brand imitation. Contemporary maritime identity, not a generic anchor. A top-down abstract sheltered harbor with a single small boat securely berthed inside a U-shaped dock. Reduce the boat and dock to three or four elegant geometric shapes. Deep ocean blue #123B5D and seafoam #66C7B4. Refined humanist sans-serif Berth wordmark."
+}
