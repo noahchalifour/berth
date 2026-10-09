@@ -67,7 +67,8 @@ that introduced the suite.
 ## The emulator image contract
 
 `tests/e2e/test_image.py` runs under plain Docker, with no cluster. The
-`emulator-image` job in `build.yml` runs it once per catalog device:
+`emulator-image` job in `build.yml` used to run it once per catalog device; that
+job is disabled for now, so run it by hand:
 
 ```bash
 docker build -t emulator:ci emulator/

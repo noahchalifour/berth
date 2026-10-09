@@ -22,8 +22,10 @@ Linux with KVM) real Android emulators.
 ./e2e/up.sh && ./e2e/run.sh
 ```
 
-See [`e2e/README.md`](e2e/README.md). CI runs it nightly, on changes to the
-suite, and before every release (`.github/workflows/e2e.yml`).
+See [`e2e/README.md`](e2e/README.md). CI does not run it at the moment: the
+nightly, pull-request and release-tag triggers are gone, so a manual
+`Run workflow` dispatch is the only way to start it (`.github/workflows/e2e.yml`).
+Until they are restored, run it locally with the command above.
 
 ## Images
 
