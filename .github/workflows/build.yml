@@ -20,76 +20,15 @@ jobs:
       - run: ./scripts/gen-grpc.sh && git diff --exit-code src/emulator_hub/_grpc
       - run: uv run pytest -q
 
-  # The emulator image contract (tests/e2e/test_image.py), once per catalog
-  # entry: every device with every system image that can boot it. The matrix
-  # is generated from catalog.py so it cannot drift.
-  catalog-matrix:
-    runs-on: ubuntu-latest
-    outputs:
-      include: ${{ steps.m.outputs.include }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
-      - id: m
-        run: |
-          uv run --frozen python - >>"$GITHUB_OUTPUT" <<'PY'
-          import json
-          from emulator_hub.catalog import DEVICES, SYSTEM_IMAGES
-          rows = [{"image": spec.package, "device": d}
-                  for ff, devs in DEVICES.items() for d in devs
-                  for spec in SYSTEM_IMAGES.values() if ff in spec.form_factors]
-          print("include=" + json.dumps(rows))
-          PY
-
-  emulator-image:
-    needs: catalog-matrix
-    runs-on: ubuntu-latest
-    timeout-minutes: 90
-    strategy:
-      fail-fast: false
-      matrix:
-        include: ${{ fromJSON(needs.catalog-matrix.outputs.include) }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
-      # ubuntu-latest has ~14 GB free; the emulator image is ~17.5 GB.
-      - name: Free disk
-        run: |
-          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
-          sudo docker image prune -af
-          df -h /
-      - name: Enable KVM
-        run: |
-          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
-          sudo udevadm control --reload-rules && sudo udevadm trigger --name-match=kvm
-      - run: sudo apt-get install -y -qq adb
-      # Lets a container get containerd 2's RLIMIT_NOFILE (1073741816).
-      - run: sudo sysctl -w fs.nr_open=1073741816
-      - run: docker build -t emulator:ci emulator/
-      - name: Image size
-        run: |
-          docker image inspect -f '{{.Size}}' emulator:ci | awk '{printf "image size: %.1f GB\n", $1/1e9}' | tee -a "$GITHUB_STEP_SUMMARY"
-      - name: Image contract
-        id: contract
-        env:
-          E2E_IMAGE: emulator:ci
-          E2E_SYSTEM_IMAGE: ${{ matrix.image }}
-          E2E_DEVICE: ${{ matrix.device }}
-        run: uv run --frozen --group e2e pytest tests/e2e/test_image.py -m e2e -o addopts= -rA --timeout=1800
-      - name: Boot time
-        if: always()
-        env:
-          DEVICE: ${{ matrix.device }}
-          BOOT: ${{ steps.contract.outputs.boot_seconds }}
-        run: echo "boot $DEVICE in ${BOOT}s" | tee -a "$GITHUB_STEP_SUMMARY"
-
-  # The full-stack suite gates every release.
-  e2e:
-    if: startsWith(github.ref, 'refs/tags/v')
-    uses: ./.github/workflows/e2e.yml
+  # DISABLED: the e2e suite. Three jobs lived here: catalog-matrix and
+  # emulator-image (the tests/e2e/test_image.py contract, one run per catalog
+  # entry, on every PR and push) and e2e (which called
+  # .github/workflows/e2e.yml to gate releases). With them gone, `image` no
+  # longer waits on e2e before publishing. `git revert` this commit to restore
+  # all three.
 
   image:
-    needs: [test, emulator-image, e2e]
+    needs: [test]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:

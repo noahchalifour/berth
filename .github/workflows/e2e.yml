@@ -3,22 +3,19 @@ name: e2e
 # The full-stack end-to-end suite (tests/e2e): the hub and emulator images built
 # from this commit, deployed into kind on a KVM runner with MetalLB slot IPs,
 # ingress-nginx + fake authentik, NetworkPolicies and the KVM device plugin.
-# See e2e/README.md. Release tags run it through build.yml (workflow_call).
+# See e2e/README.md.
+#
+# DISABLED: nothing starts this suite automatically. The nightly schedule, the
+# pull_request trigger and the workflow_call that build.yml's release job used
+# were removed, leaving a manual "Run workflow" dispatch as the only trigger.
+# `git revert` this commit to bring them back.
 on:
-  schedule:
-    - cron: "17 7 * * *"
   workflow_dispatch:
     inputs:
       pytest_args:
         description: Extra pytest args (e.g. -k lifecycle)
         required: false
         default: ""
-  workflow_call:
-  pull_request:
-    paths:
-      - "e2e/**"
-      - "tests/e2e/**"
-      - ".github/workflows/e2e.yml"
 
 concurrency:
   group: e2e-${{ github.ref }}
